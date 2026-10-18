@@ -6,9 +6,9 @@ you can, take every checkpoint, and beat the author time. You can also build and
 tracks.
 
 It's a clean-room build. The code, physics tuning, tracks, 3D models, textures and sounds are all
-original, generated in code from scratch, and the game ships no third-party game assets. See
-[`../analysis/REPORT.md`](../analysis/REPORT.md) for the static analysis of the original game and
-how its design informed this one.
+original, generated in code from scratch, and the game ships no third-party game assets.
+
+Velocity Blocks is open source under the [MIT License](LICENSE).
 
 ## Features
 
@@ -169,3 +169,17 @@ android/ ios/ Capacitor native projects
 `St` start, `F` finish, `C` checkpoint, `S` straight, `B` boost, `T` turbo, `R`/`L` tight curve,
 `R2`/`L2` wide curve, `U`/`D` slope up/down (2 cells, 1 level), `J` jump ramp, `G` gap,
 `@n` set level, `x3` repeat. Example: `St Sx2 C Sx2 R2 Sx2 C S L2 Sx2 F`.
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a pull request, run `npm run typecheck` and
+`npm test`, and add tests in `tests/` for physics, timing or track-format changes. A change to the
+physics must also bump `PHYSICS_VERSION`, because records and ghosts from older versions no longer
+match.
+
+## License
+
+[MIT](LICENSE) © 2026 Mitovoid-AI.
+
+TrackMania is a trademark of Ubisoft and Nadeo. Velocity Blocks is an independent project and is
+not affiliated with or endorsed by them.

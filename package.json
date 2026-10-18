@@ -3,6 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "description": "Velocity Blocks: a single-player block-track time-attack racer for Web, Android and iOS.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mitovoid-AI/VelocityBlocks.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite --host",
