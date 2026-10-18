@@ -1,0 +1,33 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Local overrides and signing keys never go in the repo
+.env.local
+.env.*.local
+*.jks
+*.keystore
+
+# App packages (share them as GitHub releases instead)
+*.apk
+*.aab
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/public/
+android/capacitor-cordova-android-plugins/build/
+
+# iOS
+ios/App/Pods/
+ios/App/App/public/
+ios/DerivedData/
+
+# Browser builds for game portals
+dist-*/

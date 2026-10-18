@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Velocity Blocks</string>
+    <string name="title_activity_main">Velocity Blocks</string>
+    <string name="package_name">com.velocityblocks.game</string>
+    <string name="custom_url_scheme">com.velocityblocks.game</string>
+</resources>

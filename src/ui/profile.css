@@ -1,0 +1,501 @@
+/* ---------- Driver profile: home card, setup page, profile editor (garage) ----------
+   Imported from src/app/profileScreen.ts. Targets: 640x360, 800x360 and 1067x600 CSS px,
+   none of which may scroll. The panel sits on the left and the garage camera
+   (App.setGarageView) puts the car right of centre, so only the left side is darkened.
+   The Android keyboard covers the page without resizing it (MainActivity sets
+   setDecorFitsSystemWindows(false)), so the name field is always the first field. */
+
+/* ---- Avatars: the photo (or dummy) with a ring in the car colour, set inline ---- */
+.avatar {
+  display: block;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #2a3346;
+  border: 3px solid #e8452c;
+  box-shadow: 0 0 0 1px rgba(10, 14, 20, 0.85);
+  pointer-events: none;
+  -webkit-touch-callout: none;
+}
+.avatar-lg {
+  width: 104px;
+  height: 104px;
+  border-width: 4px;
+}
+.hp-add,
+.pf-add {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #1a0d05;
+  font-weight: 900;
+  font-size: 16px;
+  line-height: 20px;
+  text-align: center;
+  pointer-events: none;
+}
+.pf-add {
+  right: 2px;
+  bottom: 2px;
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+  font-size: 22px;
+}
+
+/* ---- Home card: a pill in the top-right corner, out of the menu column's flow ----
+   640x360: x 332-626, y 10-62; the logo starts near y 70 and the menu grid near y 160.
+   1067x600: x 753-1053, y 14-74; the logo spans x 64-~500, so nothing overlaps. */
+.home-profile {
+  position: absolute;
+  top: calc(14px + var(--safe-t));
+  right: calc(14px + var(--safe-r));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(300px, 46vw);
+  padding: 6px 14px 6px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.08s,
+    border-color 0.15s;
+}
+.home-profile:active {
+  transform: scale(0.98);
+}
+.home-profile:focus-visible {
+  border-color: rgba(255, 255, 255, 0.45);
+  outline: none;
+}
+@media (hover: hover) {
+  .home-profile:hover {
+    border-color: rgba(255, 255, 255, 0.45);
+  }
+}
+.hp-avatar,
+.pf-photo {
+  position: relative;
+  flex-shrink: 0;
+}
+.hp-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.hp-name {
+  font-weight: 800;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hp-car {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+  flex-shrink: 0;
+}
+.hp-edit {
+  color: var(--muted);
+  font-size: 15px;
+  margin-left: 2px;
+}
+
+/* ---- Garage screen: dark behind the panel, clear over the car (which sits near 75%) ---- */
+.screen.garage {
+  background: linear-gradient(90deg, rgba(6, 10, 24, 0.9) 0, rgba(6, 10, 24, 0.8) 54%, rgba(6, 10, 24, 0) 68%);
+}
+/* Left column: 56vw is 358px at 640, 448px at 800; 560px at 1067 (52vw). */
+.pf-wrap {
+  width: min(560px, 56vw);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.header.pf-head {
+  gap: 10px;
+}
+.header.pf-head h2 {
+  min-width: 0;
+  font-size: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pf-head .btn {
+  flex-shrink: 0;
+}
+.pf-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.pf-tabs .pf-tab {
+  flex: 1;
+  text-align: center;
+}
+.pf-tab.sel,
+.seg .btn.sel {
+  border-color: var(--accent);
+  background: rgba(255, 106, 61, 0.25);
+}
+.panel.pf-panel {
+  padding: 16px;
+}
+.pf-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pf-pane.pf-driver {
+  display: block;
+}
+.pf-label {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+.pf-pane .pf-label ~ .pf-label {
+  margin-top: 6px;
+}
+
+/* ---- Identity: photo button left, name + photo buttons + note right ---- */
+.pf-id {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.pf-photo {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.pf-photo:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+.pf-photo.busy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(6, 10, 24, 0.55);
+}
+.pf-photo.busy::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  animation: pf-spin 0.8s linear infinite;
+}
+@keyframes pf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.pf-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pf-fields input[type='text'] {
+  width: 100%;
+  min-width: 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.pf-photo-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pf-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- Car tab ---- */
+.pf-swatches {
+  gap: 8px;
+}
+.bodies {
+  display: flex;
+  gap: 8px;
+}
+.body-opt {
+  flex: 1;
+  max-width: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.body-opt svg {
+  width: 64px;
+  height: 24px;
+  fill: currentColor;
+}
+.body-opt.sel {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+.body-opt:focus-visible,
+.pf-switch:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 1px;
+}
+.body-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---- Controls tab ---- */
+.seg {
+  display: flex;
+  gap: 6px;
+}
+.seg .btn {
+  flex: 1;
+  text-align: center;
+}
+.pf-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+/* A checkbox look on a button (see switchHtml in profileScreen.ts). */
+.pf-switch {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.pf-box {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  background: #0e1530;
+}
+.pf-switch[aria-checked='true'] .pf-box {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.pf-switch[aria-checked='true'] .pf-box::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 6px;
+  height: 11px;
+  border: solid #1a0d05;
+  border-width: 0 3px 3px 0;
+  transform: rotate(45deg);
+}
+
+/* ---- Setup page ---- */
+.setup-go {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 14px;
+}
+.setup-go .btn {
+  flex-shrink: 0;
+}
+.setup-go .muted {
+  flex: 1 1 220px;
+  font-size: 13px;
+}
+
+/* Portrait or narrow web windows: no room beside the car, so use the full width. */
+@media (max-aspect-ratio: 1/1) {
+  .screen.garage {
+    background: rgba(6, 10, 24, 0.85);
+  }
+  .pf-wrap {
+    width: 100%;
+    max-width: 560px;
+  }
+}
+
+/* ---- Short landscape phones (640x360, 800x360) ----
+   Height budget at 360 (no scrolling):
+     screen padding 10 top + 10 bottom = 20             -> 340 left
+     header row 33 (btn 14px text + 2x7 pad + 2 border) + 6 gap = 39
+     tab row    30 (13px text + 2x6 pad + 2 border)     + 6 gap = 36
+     panel: 2x10 padding + 2 border = 22, so content may use 340 - 39 - 36 - 22 = 243
+       driver: max(avatar 84, input 33 + 6 + buttons 28 + 6 + note 2x16) = 105
+       car:    label 16 + 6 + swatches 24 + 12 + label 16 + 6 + bodies 50 + 6 + note 16 = 152
+       controls: label 16 + 6 + seg 30 + 12 + label 16 + 6 + 3 switches x 30 + 2 x 4 = 184
+       setup (no tabs, so +36): identity 105 + 10 + button 38 + 6 + note 3x16 = 207
+   Width budget at 640: column 358, panel content 358 - 2x12 - 2 = 332
+     header: Back 70 + Done 56 + gaps 3x8 leaves 182 for the h2 (20px, "Driver profile" ~160);
+       setup: Skip 52 + gaps 16 leaves 290 ("New: your driver profile" ~275, else ellipsis)
+     identity: avatar 84 + gap 12 leaves 236; Gallery/Camera/Remove ~66+68+68 + 2x6 gaps = 214
+     swatches: up to 9 x 24 + 8 x 5 = 256 (8 stock colours + a custom one)
+     bodies: 3 x ~103 with 2 x 8 gaps; the 64px icon fits each
+   The name field ends near y 130 (edit) or y 95 (setup), above a landscape keyboard. */
+@media (max-height: 520px) {
+  .screen.profile {
+    padding-top: calc(10px + var(--safe-t));
+    padding-bottom: calc(10px + var(--safe-b));
+  }
+  .header.pf-head {
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .header.pf-head h2 {
+    font-size: 20px;
+  }
+  .pf-head .btn.small {
+    padding: 7px 10px;
+  }
+  .pf-tabs {
+    margin-bottom: 6px;
+  }
+  .pf-tabs .btn.small,
+  .seg .btn.small,
+  .pf-photo-btns .btn.small {
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+  .panel.pf-panel {
+    padding: 10px 12px;
+  }
+  /* The placeholder and aria-label name the field; the row is worth more than the label. */
+  .pf-name-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .pf-fields input[type='text'] {
+    padding: 6px 10px;
+  }
+  .pf-id {
+    gap: 12px;
+  }
+  .avatar-lg {
+    width: 84px;
+    height: 84px;
+    border-width: 3px;
+  }
+  .pf-pane .pf-label ~ .pf-label {
+    margin-top: 6px;
+  }
+  .pf-swatches {
+    gap: 5px;
+  }
+  .pf-swatches .swatch {
+    width: 24px;
+    height: 24px;
+  }
+  .body-opt {
+    padding: 4px;
+    font-size: 12px;
+  }
+  .body-opt svg {
+    width: 56px;
+    height: 21px;
+  }
+  .pf-switches {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .pf-switch {
+    font-size: 13px;
+    padding: 3px 0;
+  }
+  .setup-go {
+    margin-top: 10px;
+    gap: 6px 12px;
+  }
+  .setup-go .btn {
+    padding: 9px 14px;
+    font-size: 15px;
+  }
+  .setup-go .muted {
+    font-size: 12px;
+  }
+  .home-profile {
+    top: calc(10px + var(--safe-t));
+    right: calc(10px + var(--safe-r));
+    gap: 8px;
+    padding: 5px 12px 5px 5px;
+  }
+  .home-profile .avatar {
+    width: 40px;
+    height: 40px;
+  }
+  .hp-name {
+    font-size: 14px;
+  }
+}
+
+/* 800x360 has room for the switches side by side again (column 448). */
+@media (max-height: 520px) and (min-width: 760px) {
+  .pf-switches {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+  }
+}

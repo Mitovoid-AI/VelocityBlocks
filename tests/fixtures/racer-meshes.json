@@ -1,0 +1,974 @@
+{
+ "normal": [
+  {
+   "geometry": "ExtrudeGeometry",
+   "vertices": 492,
+   "min": [
+    -1.01,
+    -0.4,
+    -2.2826
+   ],
+   "max": [
+    1.01,
+    0.4468,
+    2.5508
+   ],
+   "material": 0,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": true
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -1.19,
+    -0.3,
+    -1.35
+   ],
+   "max": [
+    -0.85,
+    0.06,
+    0.85
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": true
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    0.85,
+    -0.3,
+    -1.35
+   ],
+   "max": [
+    1.19,
+    0.06,
+    0.85
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": true
+  },
+  {
+   "geometry": "SphereGeometry",
+   "vertices": 247,
+   "min": [
+    -0.589,
+    0.22,
+    -1.2601
+   ],
+   "max": [
+    0.589,
+    0.685,
+    1.0601
+   ],
+   "material": 2,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.88,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -0.17,
+    0.0731,
+    -1.0471
+   ],
+   "max": [
+    0.17,
+    0.3269,
+    2.1471
+   ],
+   "material": 3,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -1.05,
+    0.7074,
+    -2.2278
+   ],
+   "max": [
+    1.05,
+    0.8526,
+    -1.6722
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": true
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -0.59,
+    0.27,
+    -2.05
+   ],
+   "max": [
+    -0.51,
+    0.77,
+    -1.75
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -1.085,
+    0.52,
+    -2.3
+   ],
+   "max": [
+    -1.035,
+    0.92,
+    -1.6
+   ],
+   "material": 0,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    0.51,
+    0.27,
+    -2.05
+   ],
+   "max": [
+    0.59,
+    0.77,
+    -1.75
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    1.035,
+    0.52,
+    -2.3
+   ],
+   "max": [
+    1.085,
+    0.92,
+    -1.6
+   ],
+   "material": 0,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -1,
+    -0.39,
+    1.9
+   ],
+   "max": [
+    1,
+    -0.33,
+    2.4
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -0.8,
+    -0.12,
+    2.395
+   ],
+   "max": [
+    -0.44,
+    -0.04,
+    2.445
+   ],
+   "material": 4,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -0.81,
+    0.07,
+    -2.265
+   ],
+   "max": [
+    -0.39,
+    0.17,
+    -2.215
+   ],
+   "material": 5,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    0.44,
+    -0.12,
+    2.395
+   ],
+   "max": [
+    0.8,
+    -0.04,
+    2.445
+   ],
+   "material": 4,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    0.39,
+    0.07,
+    -2.265
+   ],
+   "max": [
+    0.81,
+    0.17,
+    -2.215
+   ],
+   "material": 5,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "ConeGeometry",
+   "vertices": 43,
+   "min": [
+    -0.4436,
+    -0.25,
+    -3.1
+   ],
+   "max": [
+    -0.1964,
+    0.01,
+    -2.2
+   ],
+   "material": 6,
+   "mat": {
+    "type": "MeshBasicMaterial",
+    "transparent": true,
+    "opacity": 0.85,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "ConeGeometry",
+   "vertices": 43,
+   "min": [
+    0.1964,
+    -0.25,
+    -3.1
+   ],
+   "max": [
+    0.4436,
+    0.01,
+    -2.2
+   ],
+   "material": 6,
+   "mat": {
+    "type": "MeshBasicMaterial",
+    "transparent": true,
+    "opacity": 0.85,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 124,
+   "min": [
+    0.816,
+    -0.36,
+    1.09
+   ],
+   "max": [
+    1.236,
+    0.36,
+    1.81
+   ],
+   "material": 7,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": true
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 40,
+   "min": [
+    0.806,
+    -0.1933,
+    1.2268
+   ],
+   "max": [
+    1.246,
+    0.1933,
+    1.6732
+   ],
+   "material": 8,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 124,
+   "min": [
+    -1.236,
+    -0.36,
+    1.09
+   ],
+   "max": [
+    -0.816,
+    0.36,
+    1.81
+   ],
+   "material": 7,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": true
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 40,
+   "min": [
+    -1.246,
+    -0.1933,
+    1.2268
+   ],
+   "max": [
+    -0.806,
+    0.1933,
+    1.6732
+   ],
+   "material": 8,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 124,
+   "min": [
+    0.766,
+    -0.36,
+    -1.71
+   ],
+   "max": [
+    1.286,
+    0.36,
+    -0.99
+   ],
+   "material": 7,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": true
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 40,
+   "min": [
+    0.756,
+    -0.1933,
+    -1.5732
+   ],
+   "max": [
+    1.296,
+    0.1933,
+    -1.1268
+   ],
+   "material": 8,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 124,
+   "min": [
+    -1.286,
+    -0.36,
+    -1.71
+   ],
+   "max": [
+    -0.766,
+    0.36,
+    -0.99
+   ],
+   "material": 7,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": true
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 40,
+   "min": [
+    -1.296,
+    -0.1933,
+    -1.5732
+   ],
+   "max": [
+    -0.756,
+    0.1933,
+    -1.1268
+   ],
+   "material": 8,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": false,
+    "opacity": 1,
+    "depthWrite": true
+   },
+   "castShadow": false
+  }
+ ],
+ "ghost": [
+  {
+   "geometry": "ExtrudeGeometry",
+   "vertices": 492,
+   "min": [
+    -1.01,
+    -0.4,
+    -2.2826
+   ],
+   "max": [
+    1.01,
+    0.4468,
+    2.5508
+   ],
+   "material": 0,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.42,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -1.19,
+    -0.3,
+    -1.35
+   ],
+   "max": [
+    -0.85,
+    0.06,
+    0.85
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    0.85,
+    -0.3,
+    -1.35
+   ],
+   "max": [
+    1.19,
+    0.06,
+    0.85
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "SphereGeometry",
+   "vertices": 247,
+   "min": [
+    -0.589,
+    0.22,
+    -1.2601
+   ],
+   "max": [
+    0.589,
+    0.685,
+    1.0601
+   ],
+   "material": 2,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.3,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -0.17,
+    0.0731,
+    -1.0471
+   ],
+   "max": [
+    0.17,
+    0.3269,
+    2.1471
+   ],
+   "material": 3,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -1.05,
+    0.7074,
+    -2.2278
+   ],
+   "max": [
+    1.05,
+    0.8526,
+    -1.6722
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -0.59,
+    0.27,
+    -2.05
+   ],
+   "max": [
+    -0.51,
+    0.77,
+    -1.75
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -1.085,
+    0.52,
+    -2.3
+   ],
+   "max": [
+    -1.035,
+    0.92,
+    -1.6
+   ],
+   "material": 0,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.42,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    0.51,
+    0.27,
+    -2.05
+   ],
+   "max": [
+    0.59,
+    0.77,
+    -1.75
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    1.035,
+    0.52,
+    -2.3
+   ],
+   "max": [
+    1.085,
+    0.92,
+    -1.6
+   ],
+   "material": 0,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.42,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "BoxGeometry",
+   "vertices": 24,
+   "min": [
+    -1,
+    -0.39,
+    1.9
+   ],
+   "max": [
+    1,
+    -0.33,
+    2.4
+   ],
+   "material": 1,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 124,
+   "min": [
+    0.816,
+    -0.36,
+    1.09
+   ],
+   "max": [
+    1.236,
+    0.36,
+    1.81
+   ],
+   "material": 4,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 40,
+   "min": [
+    0.806,
+    -0.1933,
+    1.2268
+   ],
+   "max": [
+    1.246,
+    0.1933,
+    1.6732
+   ],
+   "material": 5,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 124,
+   "min": [
+    -1.236,
+    -0.36,
+    1.09
+   ],
+   "max": [
+    -0.816,
+    0.36,
+    1.81
+   ],
+   "material": 4,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 40,
+   "min": [
+    -1.246,
+    -0.1933,
+    1.2268
+   ],
+   "max": [
+    -0.806,
+    0.1933,
+    1.6732
+   ],
+   "material": 5,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 124,
+   "min": [
+    0.766,
+    -0.36,
+    -1.71
+   ],
+   "max": [
+    1.286,
+    0.36,
+    -0.99
+   ],
+   "material": 4,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 40,
+   "min": [
+    0.756,
+    -0.1933,
+    -1.5732
+   ],
+   "max": [
+    1.296,
+    0.1933,
+    -1.1268
+   ],
+   "material": 5,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 124,
+   "min": [
+    -1.286,
+    -0.36,
+    -1.71
+   ],
+   "max": [
+    -0.766,
+    0.36,
+    -0.99
+   ],
+   "material": 4,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  },
+  {
+   "geometry": "CylinderGeometry",
+   "vertices": 40,
+   "min": [
+    -1.296,
+    -0.1933,
+    -1.5732
+   ],
+   "max": [
+    -0.756,
+    0.1933,
+    -1.1268
+   ],
+   "material": 5,
+   "mat": {
+    "type": "MeshStandardMaterial",
+    "transparent": true,
+    "opacity": 0.35,
+    "depthWrite": false
+   },
+   "castShadow": false
+  }
+ ]
+}

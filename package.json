@@ -1,0 +1,37 @@
+{
+  "name": "velocity-blocks",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Velocity Blocks: a single-player block-track time-attack racer for Web, Android and iOS.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "dev:adtest": "vite --host --mode adtest",
+    "dev:crazygames": "vite --host --mode crazygames",
+    "dev:poki": "vite --host --mode poki",
+    "build": "tsc --noEmit && vite build",
+    "build:crazygames": "tsc --noEmit && vite build --mode crazygames",
+    "build:poki": "tsc --noEmit && vite build --mode poki",
+    "build:web": "tsc --noEmit && vite build --mode crazygames && vite build --mode poki",
+    "preview": "vite preview --host",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "cap:sync": "npm run build && cap sync",
+    "android:build": "npm run cap:sync && cd android && gradlew.bat assembleDebug",
+    "android:open": "cap open android",
+    "ios:open": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
+    "@capacitor/ios": "^6.2.1",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.1",
+    "@types/three": "^0.186.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
+  }
+}

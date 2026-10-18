@@ -1,0 +1,897 @@
+:root {
+  --bg: #0b1020;
+  --panel: rgba(12, 18, 38, 0.86);
+  --panel-solid: #111a35;
+  --line: rgba(255, 255, 255, 0.12);
+  --text: #eef2ff;
+  --muted: #9aa6c8;
+  --accent: #ff6a3d;
+  --accent-2: #3fe0ff;
+  --good: #3fe0ff;
+  --bad: #ff4d5e;
+  --gold: #ffcf3f;
+  --font: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+#view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------- HUD ---------- */
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-style: italic;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+}
+.hud-tl {
+  position: absolute;
+  left: calc(16px + var(--safe-l));
+  top: calc(12px + var(--safe-t));
+}
+.hud-track {
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
+.hud-target {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.hud-tr {
+  position: absolute;
+  right: calc(16px + var(--safe-r));
+  top: calc(12px + var(--safe-t));
+  text-align: right;
+}
+.hud-cp {
+  font-weight: 800;
+  font-size: 20px;
+}
+.hud-pb {
+  font-size: 13px;
+  color: var(--muted);
+}
+.hud-count {
+  position: absolute;
+  top: 28%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: clamp(64px, 14vw, 150px);
+  font-weight: 900;
+  color: #fff;
+  opacity: 0;
+}
+.hud-count.pop {
+  animation: pop 0.5s ease-out;
+}
+@keyframes pop {
+  0% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  30% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+}
+.hud-split {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 22px;
+  font-weight: 800;
+  opacity: 0;
+  transition: opacity 0.25s;
+  white-space: nowrap;
+}
+.hud-split.show {
+  opacity: 1;
+}
+.hud-split .ahead {
+  color: var(--good);
+}
+.hud-split .behind {
+  color: var(--bad);
+}
+.hud-msg {
+  position: absolute;
+  top: 34%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: #ffd27a;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.hud-msg.show {
+  opacity: 1;
+}
+/* Flipped-car warning; its bar fills (scaleX, set by Hud.flipWarning) until the auto-respawn.
+   44% keeps it below .hud-msg and above the car at 360 px tall. */
+.hud-flip {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 16px 8px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffd27a;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.hud-flip.show {
+  opacity: 1;
+}
+.hud-flip-bar {
+  height: 4px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+#hud-flip-fill {
+  height: 100%;
+  background: #ffd27a;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.hud-bottom {
+  position: absolute;
+  bottom: calc(14px + var(--safe-b));
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+.hud-time {
+  display: inline-block;
+  font-size: clamp(30px, 5vw, 46px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 2px 22px;
+}
+.hud-br {
+  position: absolute;
+  right: calc(22px + var(--safe-r));
+  bottom: calc(14px + var(--safe-b));
+  text-align: right;
+}
+.hud-speed {
+  font-size: clamp(38px, 6vw, 60px);
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.hud-unit {
+  font-size: 13px;
+  color: var(--muted);
+}
+.hud-boost {
+  width: 120px;
+  height: 6px;
+  margin: 6px 0 0 auto;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+#hud-boost-bar {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #33ff77, #ffcf3f, #ff4433);
+}
+body.touch .hud-br {
+  bottom: auto;
+  top: calc(64px + var(--safe-t));
+}
+
+/* ---------- Touch controls ---------- */
+#touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#touch .t-btn,
+#touch .t-small {
+  pointer-events: auto;
+  touch-action: none;
+}
+.t-left,
+.t-right {
+  position: absolute;
+  bottom: calc(18px + var(--safe-b));
+  display: flex;
+  gap: 14px;
+}
+.t-left {
+  left: calc(18px + var(--safe-l));
+}
+.t-right {
+  right: calc(18px + var(--safe-r));
+}
+.t-btn {
+  width: clamp(72px, 13vw, 104px);
+  height: clamp(72px, 13vw, 104px);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(10, 16, 34, 0.45);
+  color: #fff;
+  font-size: 28px;
+  backdrop-filter: blur(4px);
+}
+.t-btn.active {
+  background: rgba(255, 106, 61, 0.55);
+  border-color: #fff;
+}
+.t-gas {
+  border-color: rgba(63, 224, 255, 0.7);
+}
+.t-brake {
+  border-color: rgba(255, 77, 94, 0.7);
+}
+.t-top {
+  position: absolute;
+  top: calc(10px + var(--safe-t));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+.t-small {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  min-height: 40px;
+}
+/* Landscape phones up to about 860px wide: centred pills would cover the medal times (more
+   so beside a display cutout), and lower down the checkpoint split, so they sit just left
+   of the CP / PB block instead. */
+@media (max-width: 860px) {
+  .t-top {
+    left: auto;
+    right: calc(140px + var(--safe-r));
+    transform: none;
+  }
+}
+/* 16:9 phones (about 640px wide): tighter pills, closer to CP / PB, so all four still clear
+   the medal times. */
+@media (max-width: 700px) {
+  .t-top {
+    right: calc(120px + var(--safe-r));
+    gap: 6px;
+  }
+  .t-small {
+    padding: 8px 11px;
+  }
+}
+
+/* ---------- Screens ---------- */
+#screens {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.screen {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  padding: calc(18px + var(--safe-t)) calc(18px + var(--safe-r)) calc(18px + var(--safe-b)) calc(18px + var(--safe-l));
+  overflow-y: auto;
+  animation: fade 0.25s ease-out;
+}
+.screen.dim {
+  background: radial-gradient(ellipse at center, rgba(6, 10, 24, 0.55), rgba(6, 10, 24, 0.88));
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.logo {
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  line-height: 0.95;
+  font-size: clamp(40px, 8vw, 84px);
+  background: linear-gradient(90deg, #ff6a3d, #ffcf3f 45%, #3fe0ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.5));
+}
+.tagline {
+  color: var(--muted);
+  margin: 6px 0 22px;
+  font-size: 15px;
+}
+.menu-main {
+  justify-content: center;
+  align-items: flex-start;
+  padding-left: calc(6vw + var(--safe-l));
+  background: linear-gradient(90deg, rgba(6, 10, 24, 0.85), rgba(6, 10, 24, 0.15) 60%, transparent);
+}
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: min(320px, 80vw);
+}
+.btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-size: 17px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 0.08s,
+    background 0.15s,
+    border-color 0.15s;
+}
+.btn:focus-visible {
+  background: rgba(40, 56, 110, 0.9);
+  border-color: rgba(255, 255, 255, 0.35);
+  outline: none;
+}
+/* Touchscreens apply :hover to the last tapped element and keep it, so hover is mouse-only. */
+@media (hover: hover) {
+  .btn:hover {
+    background: rgba(40, 56, 110, 0.9);
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+  .card:hover {
+    border-color: rgba(255, 255, 255, 0.45);
+    transform: translateY(-2px);
+  }
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn.primary {
+  background: linear-gradient(90deg, #ff6a3d, #ff9a3d);
+  border-color: transparent;
+  color: #1a0d05;
+}
+.btn.small {
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.btn.center {
+  text-align: center;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.spacer {
+  flex: 1;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.header h2 {
+  margin: 0;
+  font-style: italic;
+  font-weight: 900;
+  font-size: 28px;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+  backdrop-filter: blur(6px);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+.card {
+  position: relative;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition:
+    transform 0.1s,
+    border-color 0.15s;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+.card:focus-visible {
+  border-color: rgba(255, 255, 255, 0.45);
+  transform: translateY(-2px);
+  outline: none;
+}
+.card.locked {
+  opacity: 0.45;
+  cursor: default;
+}
+.card .id {
+  font-weight: 900;
+  font-style: italic;
+  font-size: 22px;
+}
+.card .name {
+  font-weight: 700;
+}
+.card .meta {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.series {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.s-White {
+  background: #e8edf5;
+  color: #111;
+}
+.s-Green {
+  background: #2fbf5b;
+  color: #04190a;
+}
+.s-Blue {
+  background: #2f6fd6;
+  color: #fff;
+}
+.s-Red {
+  background: #d6312b;
+  color: #fff;
+}
+.s-Black {
+  background: #111;
+  color: #fff;
+  border: 1px solid #444;
+}
+.medal {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  vertical-align: -2px;
+  margin-right: 4px;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25);
+}
+.medal-big {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 -6px 0 rgba(0, 0, 0, 0.25),
+    0 0 24px rgba(255, 255, 255, 0.25);
+  margin: 0 auto 8px;
+}
+.result {
+  margin: auto;
+  width: min(460px, 94vw);
+  text-align: center;
+}
+.result .time {
+  font-size: 54px;
+  font-weight: 900;
+  font-style: italic;
+  font-variant-numeric: tabular-nums;
+}
+.result .delta {
+  font-weight: 800;
+  font-size: 18px;
+}
+.ahead {
+  color: var(--good);
+}
+.behind {
+  color: var(--bad);
+}
+.medals-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-variant-numeric: tabular-nums;
+}
+.medals-table td {
+  padding: 4px 6px;
+  text-align: left;
+}
+.medals-table td:last-child {
+  text-align: right;
+}
+.medals-table tr.hit td {
+  color: #fff;
+  font-weight: 800;
+}
+.medals-table tr:not(.hit) td {
+  color: var(--muted);
+}
+.form {
+  display: grid;
+  grid-template-columns: minmax(130px, 200px) 1fr;
+  gap: 12px 16px;
+  align-items: center;
+  max-width: 620px;
+}
+.form label {
+  color: var(--muted);
+  font-weight: 600;
+}
+select,
+input[type='text'] {
+  font: inherit;
+  color: var(--text);
+  background: #0e1530;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+.swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.swatch.sel {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+.keys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: 15px;
+}
+kbd {
+  display: inline-block;
+  min-width: 26px;
+  text-align: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #0e1530;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 13px;
+}
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(90px + var(--safe-b));
+  transform: translateX(-50%);
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+  max-width: 90vw;
+  text-align: center;
+}
+.toast.show {
+  opacity: 1;
+}
+.muted {
+  color: var(--muted);
+}
+
+/* ---------- Editor ---------- */
+.editor {
+  padding: 0;
+  pointer-events: none;
+}
+.editor > * {
+  pointer-events: auto;
+}
+.ed-top {
+  position: absolute;
+  top: calc(10px + var(--safe-t));
+  left: calc(10px + var(--safe-l));
+  right: calc(10px + var(--safe-r));
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ed-top input[type='text'] {
+  width: 180px;
+}
+/* Phones in landscape (360dp tall, 640-860px wide): keep the toolbar on one row so
+   Test drive never wraps under the block palette; if it still overflows, it scrolls. */
+@media (max-width: 860px) {
+  .ed-top {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 6px;
+    scrollbar-width: none;
+  }
+  .ed-top > * {
+    flex-shrink: 0;
+  }
+  .ed-top .btn.small {
+    padding: 8px 10px;
+  }
+  .ed-top input[type='text'] {
+    width: 110px;
+  }
+}
+@media (max-width: 720px) {
+  .ed-top {
+    gap: 4px;
+  }
+  .ed-top .btn.small {
+    padding: 8px 8px;
+  }
+  .ed-top input[type='text'] {
+    width: 72px;
+  }
+}
+.ed-palette {
+  position: absolute;
+  left: calc(10px + var(--safe-l));
+  top: calc(64px + var(--safe-t));
+  bottom: calc(10px + var(--safe-b));
+  width: 150px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.ed-palette .btn {
+  font-size: 13px;
+  padding: 7px 9px;
+}
+.ed-palette .btn.sel {
+  border-color: var(--accent);
+  background: rgba(255, 106, 61, 0.25);
+}
+.ed-bottom {
+  position: absolute;
+  left: calc(172px + var(--safe-l));
+  right: calc(10px + var(--safe-r));
+  bottom: calc(10px + var(--safe-b));
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+/* The turn-view arrows are tiny at button text size; enlarge them without a taller button. */
+.ed-bottom .ed-turn {
+  font-size: 22px;
+  line-height: 19px;
+  padding: 8px 10px;
+}
+.ed-status {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+.ed-status.ok {
+  border-color: rgba(63, 224, 255, 0.6);
+}
+.ed-status.warn {
+  border-color: rgba(255, 207, 63, 0.6);
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+}
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.list-item .grow {
+  flex: 1;
+  min-width: 0;
+}
+.list-item .title {
+  font-weight: 800;
+}
+
+@media (max-width: 720px), (max-height: 480px) {
+  .ed-palette {
+    width: 118px;
+  }
+  .ed-bottom {
+    left: calc(138px + var(--safe-l));
+  }
+  .header h2 {
+    font-size: 22px;
+  }
+}
+
+/* Short landscape phones */
+@media (max-height: 520px) {
+  .logo {
+    font-size: 34px;
+  }
+  .tagline {
+    margin: 2px 0 10px;
+    font-size: 13px;
+  }
+  .menu-main {
+    padding-left: calc(4vw + var(--safe-l));
+  }
+  .menu-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    min-width: min(460px, 72vw);
+  }
+  .menu-list .btn {
+    padding: 9px 12px;
+    font-size: 15px;
+  }
+  .menu-list .btn.primary {
+    grid-column: 1 / -1;
+  }
+  .result .menu-list {
+    grid-template-columns: 1fr;
+  }
+  .header {
+    margin-bottom: 8px;
+  }
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+  }
+  .card {
+    padding: 8px 10px;
+  }
+  .card .id {
+    font-size: 18px;
+  }
+  .panel {
+    padding: 12px;
+  }
+  .result .time {
+    font-size: 36px;
+  }
+  .medal-big {
+    width: 36px;
+    height: 36px;
+    margin-bottom: 4px;
+  }
+  .medals-table {
+    margin: 4px 0;
+    font-size: 13px;
+  }
+  .medals-table td {
+    padding: 1px 6px;
+  }
+  .result .row {
+    margin-top: 8px !important;
+  }
+  .hud-track {
+    font-size: 15px;
+  }
+  .hud-target {
+    font-size: 11px;
+  }
+  /* Smaller box only; top stays 44% so it still clears .hud-msg. */
+  .hud-flip {
+    font-size: 15px;
+    padding: 4px 12px 6px;
+  }
+}

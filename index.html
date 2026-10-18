@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b1020" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="description" content="Velocity Blocks: a block-built time-attack racer. Drive, beat the author time, build your own tracks." />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <title>Velocity Blocks</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="view"></canvas>
+      <div id="hud" class="hidden">
+        <div class="hud-tl">
+          <div id="hud-track" class="hud-track"></div>
+          <div id="hud-target" class="hud-target"></div>
+        </div>
+        <div class="hud-tr">
+          <div id="hud-cp" class="hud-cp"></div>
+          <div id="hud-pb" class="hud-pb"></div>
+        </div>
+        <div id="hud-count" class="hud-count"></div>
+        <div id="hud-split" class="hud-split"></div>
+        <div id="hud-msg" class="hud-msg" aria-live="polite"></div>
+        <div id="hud-flip" class="hud-flip" aria-live="polite"><div id="hud-flip-text"></div><div class="hud-flip-bar"><div id="hud-flip-fill"></div></div></div>
+        <div class="hud-bottom">
+          <div id="hud-time" class="hud-time">0:00.00</div>
+        </div>
+        <div class="hud-br">
+          <div id="hud-speed" class="hud-speed">0</div>
+          <div class="hud-unit">km/h</div>
+          <div class="hud-boost"><div id="hud-boost-bar"></div></div>
+        </div>
+      </div>
+      <div id="touch" class="hidden">
+        <div class="t-left">
+          <button class="t-btn" data-t="left" aria-label="Steer left">&#9664;</button>
+          <button class="t-btn" data-t="right" aria-label="Steer right">&#9654;</button>
+        </div>
+        <div class="t-right">
+          <button class="t-btn t-brake" data-t="brake" aria-label="Brake / reverse">&#9660;</button>
+          <button class="t-btn t-gas" data-t="gas" aria-label="Accelerate">&#9650;</button>
+        </div>
+        <div class="t-top">
+          <button class="t-small" data-a="respawn" aria-label="Respawn at checkpoint">&#10226; CP</button>
+          <button class="t-small" data-a="restart" aria-label="Restart">&#8635; Restart</button>
+          <button class="t-small" data-a="pause" aria-label="Pause">&#10074;&#10074;</button>
+          <button class="t-small" data-a="camera" aria-label="Change camera">Cam</button>
+        </div>
+      </div>
+      <div id="screens"></div>
+      <div id="toast" class="toast"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
