@@ -15,9 +15,15 @@ Velocity Blocks is open source under the [MIT License](LICENSE).
 - **12-track campaign** (White → Black series) with Author / Gold / Silver / Bronze medals.
   Each track is checked by an autopilot that has to finish it, and that autopilot's time is the
   author time.
-- **Arcade physics** at a fixed 100 Hz tick: a rigid body on four suspension rays with
-  grip-limited tyres, a brake-tap drift, downforce, road adhesion over crests, boost and turbo pads,
-  and jump ramps.
+- **Arcade physics with F1-style handling** at a fixed 100 Hz tick: a rigid body on four
+  suspension rays with slip-angle tyres, rear-wheel drive, aero downforce through the springs (fast
+  corners hold more grip than slow ones), ABS brakes, steering lock that eases off with speed,
+  traction control (Normal, or Low to let the rear wheels spin), a brake-tap drift, road adhesion
+  over crests, boost and turbo pads, and jump ramps.
+- **Racing line:** an optional coloured line on the road (green: full throttle, yellow: lift, red:
+  brake) from a pace driver that plans with the car's real grip and braking limits. The 12 campaign
+  lines are precomputed; custom tracks get theirs worked out in the background. Toggle it in the
+  pause menu.
 - **Off-road:** ground-level roads have no barriers, so you can drive onto the grass, which has
   less grip and tops out around 100 km/h. Raised decks keep their barriers, and gate posts,
   pillars and embankment sides are solid. A checkpoint only counts when you drive through its
@@ -28,9 +34,11 @@ Velocity Blocks is open source under the [MIT License](LICENSE).
   HUD fills up first), or restarts if no checkpoint has been passed.
 - **Driver profile:** the main menu is a home page with your profile card on top; tap it to edit.
   Set a photo (gallery or camera, cropped to 192 px and only used by the game, never uploaded),
-  a name, the car colour and body style, the starting camera, tilt steering and auto-accelerate.
-  A skippable setup page asks for the photo and name on first launch.
-- **Body styles:** Racer, Buggy and Muscle. They are looks only: every body uses the same physics.
+  a name, the car colour and body style, the starting camera, steering, pedals, traction control,
+  the racing line and auto-accelerate. A skippable setup page asks for the photo and name on first
+  launch.
+- **Body styles:** Racer, Buggy, Muscle and Formula (open wheels, wings and halo). They are looks
+  only: every body uses the same physics.
 - **Photo badge:** your photo (or a dummy silhouette when none is set) floats above your car while
   you race and in replays, and a dimmed copy rides on the personal-best ghost. It hides in the
   hood camera and can be switched off in the profile.
@@ -40,10 +48,20 @@ Velocity Blocks is open source under the [MIT License](LICENSE).
 - **Track editor:** 13 block types on a 32 × 32 grid with 8 height levels. Rotate, erase, undo,
   route validation, an autopilot check, test drives (your first finish sets the author time), and
   save, export and import as `.vbtrack.json`.
-- **Controls:** keyboard, gamepad, on-screen touch buttons, optional tilt steering and
-  auto-accelerate (both in the driver profile).
-- **Procedural everything:** textures drawn on canvas, a low-poly car built from primitives,
-  Web Audio engine, tyre and wind sounds, and a stadium environment.
+- **Controls:** keyboard, gamepad (analog triggers) and touch. On touch, steer with the ◀ ▶ buttons,
+  an on-screen steering wheel or by tilting the device (gyro), and drive with analog gas and brake
+  bars on the side (or round on/off pedals). Switch steering from the pause menu, Settings or the
+  driver profile. Auto-accelerate is in the driver profile.
+- **Android pause handling:** the touch controls keep out of the system gesture strips (and ask
+  Android to exclude them from the back gesture), a Back swipe that the system takes from a thumb
+  on the controls is ignored during a race (tap ❚❚ to pause), and a brief loss of focus (a
+  notification, an overlay) no longer pauses the race. The pause screen says why it paused, with a
+  small diagnostics line.
+- **Procedural everything:** textures drawn on canvas (asphalt with a roughness map, kerbs, turf,
+  concrete), cars built from lofted and rounded parts with real wheels and lamp glow, a stadium
+  with stands, roofs, floodlights, LED boards, trees and hills, a sky with clouds, image-based
+  lighting, soft shadows, and bloom on High (desktop). Web Audio engine, tyre and wind sounds.
+  Graphics quality: Low, Medium (phones) and High. Append `?fps` to the URL for a frame-rate overlay.
 
 ## Controls
 
@@ -51,11 +69,12 @@ Velocity Blocks is open source under the [MIT License](LICENSE).
 | --- | --- | --- | --- |
 | Accelerate | ↑ / W | RT, A | ▲ |
 | Brake / reverse (tap while steering to drift) | ↓ / S / Space | LT, B, X | ▼ |
-| Steer | ← → / A D | Left stick, D-pad | ◀ ▶ or tilt |
+| Steer | ← → / A D | Left stick, D-pad | ◀ ▶, wheel or tilt |
 | Respawn at checkpoint | Backspace / R | Y | ⟲ CP |
 | Restart | Enter / Delete | Back | ↻ Restart |
 | Camera | C | LB | Cam |
 | Ghost on/off | G | | Pause menu |
+| Racing line on/off | | | Pause menu |
 | Pause | Esc / P | Start | ❚❚ |
 
 Editor: click to place (on touch, tap a cell, then tap it again to place), **R** to rotate, **PgUp/PgDn**
@@ -82,8 +101,13 @@ node <tmp>/author-times.mjs     # writes src/track/authorTimes.json relative to 
 - `scripts/author-times.ts` regenerates `src/track/authorTimes.json`. Run it after any physics
   change, and bump `PHYSICS_VERSION` in `src/core/constants.ts`. It fails if the autopilot misses
   the finish or needs a respawn on any campaign track. A bump resets PBs, ghosts and medals
-  (old ghosts are deleted at startup), but campaign unlocks are kept. Version 4 (off-road)
-  also gave A02, A05, A08, A10 and A12 extra checkpoints.
+  (old ghosts are deleted at startup), but campaign unlocks are kept, and custom-track author
+  times are cleared once. Version 4 (off-road) also gave A02, A05, A08, A10 and A12 extra
+  checkpoints; version 6 is the F1-style handling.
+- `scripts/racing-lines.ts` regenerates `src/track/racingLines.json` (the precomputed campaign
+  racing lines). Run it after `author-times.ts`; the campaign tests fail while it is stale.
+- `scripts/handling-bench.ts [all|accel|brake|skid|corner|power|drift|grass|bot|touch]` prints the
+  handling numbers (top speed, 0-100, braking distances, cornering limits, drift, author totals).
 - `scripts/check-campaign.ts` builds every campaign layout and reports overlaps.
 - `scripts/layout.ts "<track code>"` prints an ASCII map of a track code.
 - `scripts/diag.ts "<track code>" [seconds] [bot|gas]` prints a physics trace.

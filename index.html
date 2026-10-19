@@ -13,6 +13,44 @@
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <title>Velocity Blocks</title>
+    <!-- Boot screen, styled here so it shows while the scripts and the stylesheet load (a WebView's
+         first start after an install can take seconds); it covers the first frames, see main.ts. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0b1020;
+      }
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: #0b1020;
+        color: #9aa6c4;
+        font: 600 15px system-ui, sans-serif;
+        transition: opacity 0.3s ease-out;
+      }
+      #boot.done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot .logo {
+        text-align: center;
+        font-weight: 900;
+        font-style: italic;
+        line-height: 0.95;
+        font-size: clamp(40px, 8vw, 84px);
+        background: linear-gradient(90deg, #ff6a3d, #ffcf3f 45%, #3fe0ff);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+    </style>
   </head>
   <body>
     <div id="app">
@@ -39,14 +77,17 @@
           <div class="hud-boost"><div id="hud-boost-bar"></div></div>
         </div>
       </div>
-      <div id="touch" class="hidden">
-        <div class="t-left">
-          <button class="t-btn" data-t="left" aria-label="Steer left">&#9664;</button>
-          <button class="t-btn" data-t="right" aria-label="Steer right">&#9654;</button>
+      <div id="touch" class="hidden steer-buttons pedals-bars">
+        <div class="t-pads" data-edge-guard>
+          <button class="t-btn t-ctl" data-t="left" aria-label="Steer left">&#9664;</button>
+          <button class="t-btn t-ctl" data-t="right" aria-label="Steer right">&#9654;</button>
         </div>
-        <div class="t-right">
-          <button class="t-btn t-brake" data-t="brake" aria-label="Brake / reverse">&#9660;</button>
-          <button class="t-btn t-gas" data-t="gas" aria-label="Accelerate">&#9650;</button>
+        <div class="t-wheel t-ctl" data-t="wheel" data-edge-guard role="img" aria-label="Steering wheel"><div class="t-wheel-rim"></div></div>
+        <div class="t-pedal t-brake t-ctl" data-t="brake" data-edge-guard role="button" aria-label="Brake / reverse">
+          <div class="t-track"><div class="t-fill"></div></div><span class="t-pedal-label">BRAKE</span><span class="t-pedal-icon">&#9660;</span>
+        </div>
+        <div class="t-pedal t-gas t-ctl" data-t="gas" data-edge-guard role="button" aria-label="Accelerate">
+          <div class="t-track"><div class="t-fill"></div></div><span class="t-pedal-label">GAS</span><span class="t-pedal-icon">&#9650;</span>
         </div>
         <div class="t-top">
           <button class="t-small" data-a="respawn" aria-label="Respawn at checkpoint">&#10226; CP</button>
@@ -57,6 +98,7 @@
       </div>
       <div id="screens"></div>
       <div id="toast" class="toast"></div>
+      <div id="boot" aria-live="polite"><div class="logo">VELOCITY<br />BLOCKS</div><div class="muted">Loading&hellip;</div></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

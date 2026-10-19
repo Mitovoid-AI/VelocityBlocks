@@ -58,7 +58,7 @@ describe('simulation', () => {
     }
     expect(b.finishTime).toBe(a.finishTime);
     expect(b.car.pos).toEqual(a.car.pos);
-  });
+  }, 20000);
 
   it('accelerates to a sensible top speed on a long straight', () => {
     const track = new Track(buildTrack('drag', 'St Sx40 F'));

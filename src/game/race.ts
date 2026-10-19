@@ -11,6 +11,8 @@ import {
   stepCar,
   triggerBoost,
   upOf,
+  DEFAULT_ASSISTS,
+  type Assists,
   type CarState,
   type Controls,
 } from '../physics/vehicle';
@@ -74,7 +76,14 @@ export class RaceSession {
   inputs: number[] = [];
   ghost: Ghost | null = null;
 
-  constructor(readonly track: Track) {
+  /**
+   * `assists` are the driver aids (see assistsFor in physics/vehicle). They are not in the input log,
+   * so a replay needs the same value: change them between runs, before restart().
+   */
+  constructor(
+    readonly track: Track,
+    public assists: Readonly<Assists> = DEFAULT_ASSISTS,
+  ) {
     this.restart();
   }
 
@@ -146,7 +155,7 @@ export class RaceSession {
       );
     }
     const prev = { x: this.car.pos.x, y: this.car.pos.y, z: this.car.pos.z };
-    const ev = stepCar(this.car, quantise(ctl), this.track);
+    const ev = stepCar(this.car, quantise(ctl), this.track, this.assists);
     if (ev.impact > 6) events.push({ type: 'impact', speed: ev.impact });
     if (this.phase !== 'racing') return events;
 
@@ -254,6 +263,9 @@ function respawnState(car: CarState, gate: PlacedBlock): CarState {
   c.angVel = { x: 0, y: 0, z: 0 };
   c.drift = 0;
   c.airTime = 0;
+  c.tc = 0;
+  c.spin = 0;
+  c.abs = 0;
   return c;
 }
 

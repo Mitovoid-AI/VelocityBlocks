@@ -2,6 +2,13 @@ import './ui/styles.css';
 import { createAds } from './ads/adsUi';
 import { App } from './app/app';
 
+function hideBoot(): void {
+  const el = document.querySelector<HTMLElement>('#boot');
+  if (!el) return;
+  el.classList.add('done');
+  setTimeout(() => el.remove(), 400);
+}
+
 async function boot(): Promise<App | null> {
   // Browser builds for game portals start the ad SDK first (none in the apps or plain web build).
   const ads = createAds();
@@ -13,11 +20,16 @@ async function boot(): Promise<App | null> {
   try {
     const app = new App(ads);
     app.start();
+    // The first frames compile every shader and bake the lighting, a second or two on a phone. The
+    // boot screen stays over them (at most 8 s), so the menu never appears and then freezes.
+    await Promise.race([app.world.ready, new Promise((r) => setTimeout(r, 8000))]);
+    hideBoot();
     ads.loadingFinished();
     return app;
   } catch (e) {
     // three.js needs WebGL 2. Without it the page would stay blank, so say why.
     console.error(e);
+    hideBoot();
     document.querySelector('#screens')!.innerHTML = `<div class="screen dim"><div class="panel" style="margin:auto;max-width:520px">
       <h2 style="margin-top:0">3D graphics unavailable</h2>
       <p>Velocity Blocks needs WebGL 2, which this device could not start. Update Android System WebView (or your browser) and try again.</p>

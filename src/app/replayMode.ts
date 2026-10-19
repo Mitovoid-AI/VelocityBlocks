@@ -93,7 +93,7 @@ export class ReplayMode implements Mode {
         };
     this.lastPos = { ...p.pos };
     const sp = Math.hypot(vel.x, vel.z);
-    this.car.applyPose(p.pos, p.rot, p.steer, (sp * dt) / 0.36);
+    this.car.applyPose(p.pos, p.rot, p.steer, (sp * dt) / 0.36, sp);
 
     // Shot selection.
     this.shotTime += dt;

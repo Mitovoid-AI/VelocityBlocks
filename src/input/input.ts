@@ -1,18 +1,57 @@
 // Unified driving input: keyboard, gamepad, on-screen touch controls and optional tilt steering.
 
 import type { Controls } from '../physics/vehicle';
+import { clampCenter, filterRoll, motionRoll, screenAngle, steerFromRoll, tiltRoll, type TiltReading } from './tilt';
 
 export type Action = 'respawn' | 'restart' | 'pause' | 'camera' | 'ghost';
+/** Where an action came from (the pause screen says what paused the race). */
+export type ActionSource = 'key' | 'gamepad' | 'touch';
+
+/**
+ * What the on-screen controls add up to (TouchControls). steer is null when no touch steers,
+ * so tilt can. A released pedal must be exactly 0: rolling resistance only applies then.
+ */
+export interface TouchInput {
+  steer: number | null;
+  gas: number;
+  brake: number;
+}
+
+/** devicemotion is used only when deviceorientation has been silent this long (no gyroscope). */
+const ORIENT_QUIET_MS = 1000;
 
 export class Input {
   private keys = new Set<string>();
-  private touch = { left: false, right: false, gas: false, brake: false };
-  private tiltSteer = 0;
-  private actionHandler: ((a: Action) => void) | null = null;
+  private touch: TouchInput = { steer: null, gas: 0, brake: 0 };
+  private actionHandler: ((a: Action, src: ActionSource) => void) | null = null;
   private padPrev: boolean[] = [];
   autoAccelerate = false;
-  tiltEnabled = false;
   enabled = true;
+  /** Tilt steering: 0 (gentle) .. 1 (sharp), and the roll in degrees that means straight ahead. */
+  tiltSensitivity = 0.5;
+  tiltCenter = 0;
+  private tiltOn = false;
+  /** Smoothed device roll in degrees; null until a reading arrives after tilt is turned on. */
+  private roll: number | null = null;
+  private orientAt = -Infinity;
+  /** iOS reports gravity with the opposite sign (set when tilt is turned on). */
+  private iosGravity = false;
+  private tiltWaiters: (() => void)[] = [];
+  /** Called when the first reading arrives after tilt was turned on (TouchControls shows the tilt layout again). */
+  onTiltLive: (() => void) | null = null;
+  private readonly onOrientation = (e: DeviceOrientationEvent) => {
+    const r = tiltRoll(e.beta, e.gamma, screenAngle());
+    if (!r) return; // phones without the sensor may send one all-null event
+    this.orientAt = performance.now();
+    this.takeRoll(r);
+  };
+  private readonly onMotion = (e: DeviceMotionEvent) => {
+    // The orientation sensor is smoother; gravity alone is the fallback for phones without a gyroscope.
+    if (performance.now() - this.orientAt < ORIENT_QUIET_MS) return;
+    const g = e.accelerationIncludingGravity;
+    const r = motionRoll(g?.x, g?.y, g?.z, screenAngle(), this.iosGravity);
+    if (r) this.takeRoll(r);
+  };
 
   constructor() {
     window.addEventListener('keydown', (e) => {
@@ -28,7 +67,7 @@ export class Input {
         const a = keyAction(k);
         if (a && this.enabled) {
           e.preventDefault();
-          this.actionHandler?.(a);
+          this.actionHandler?.(a, 'key');
         }
       }
       this.keys.add(k);
@@ -36,42 +75,100 @@ export class Input {
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
-    window.addEventListener('deviceorientation', (e) => {
-      if (!this.tiltEnabled) return;
-      // Landscape: device "beta" is the steering axis; the sign flips with orientation.
-      const angle = (screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 90) as number;
-      const raw = e.beta ?? 0;
-      const v = angle === 270 || angle === -90 ? -raw : raw;
-      this.tiltSteer = Math.max(-1, Math.min(1, v / 22));
-    });
   }
 
-  onAction(fn: (a: Action) => void): void {
+  onAction(fn: (a: Action, src: ActionSource) => void): void {
     this.actionHandler = fn;
   }
 
-  setTouch(key: keyof Input['touch'], down: boolean): void {
-    this.touch[key] = down;
+  setTouchState(t: TouchInput): void {
+    this.touch = { steer: t.steer, gas: t.gas, brake: t.brake };
   }
 
   clearTouch(): void {
-    this.touch = { left: false, right: false, gas: false, brake: false };
+    this.touch = { steer: null, gas: 0, brake: 0 };
   }
 
-  /** Request iOS motion permission (must be called from a gesture). */
-  async enableTilt(on: boolean): Promise<boolean> {
-    this.tiltEnabled = on;
-    if (!on) return true;
-    const DOE = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> };
+  /** A tilt reading has arrived since tilt was turned on (the sensor answers). */
+  get tiltLive(): boolean {
+    return this.roll !== null;
+  }
+
+  /**
+   * Listen to the motion sensors or stop. The listeners are only added while tilt is on, so
+   * the sensors don't run (battery) for everyone else. Turning it off forgets the reading.
+   */
+  setTilt(on: boolean): void {
+    if (on === this.tiltOn) return;
+    this.tiltOn = on;
+    if (on) {
+      this.iosGravity = isIOS();
+      window.addEventListener('deviceorientation', this.onOrientation);
+      window.addEventListener('devicemotion', this.onMotion);
+      return;
+    }
+    // Tests stub window with addEventListener only.
+    if (typeof window.removeEventListener === 'function') {
+      window.removeEventListener('deviceorientation', this.onOrientation);
+      window.removeEventListener('devicemotion', this.onMotion);
+    }
+    this.roll = null;
+    this.orientAt = -Infinity;
+  }
+
+  /**
+   * Turn tilt on from a tap: asks for motion permission first where the browser has the API
+   * (iOS prompts; it must be called from the tap, before anything is awaited; Android WebViews
+   * have it too and always grant), then waits for the sensor. False when permission is
+   * denied or nothing answers within `ms` (no sensor); tilt is left on either way.
+   */
+  async requestTilt(ms = 1500): Promise<boolean> {
+    const DOE = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> } | undefined;
     if (DOE && typeof DOE.requestPermission === 'function') {
       try {
-        const r = await DOE.requestPermission();
-        this.tiltEnabled = r === 'granted';
+        if ((await DOE.requestPermission()) !== 'granted') return false;
       } catch {
-        this.tiltEnabled = false;
+        return false;
       }
     }
-    return this.tiltEnabled;
+    this.setTilt(true);
+    return this.waitForTilt(ms);
+  }
+
+  /** True as soon as a tilt reading is in (at once if one is), false after `ms` without one. */
+  waitForTilt(ms: number): Promise<boolean> {
+    if (this.roll !== null) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        this.tiltWaiters = this.tiltWaiters.filter((f) => f !== done);
+        resolve(false);
+      }, ms);
+      this.tiltWaiters.push(done);
+    });
+  }
+
+  /** Tilt steering -1..1 now (0 with no reading). */
+  tiltSteer(): number {
+    return this.roll === null ? 0 : steerFromRoll(this.roll, this.tiltCenter, this.tiltSensitivity);
+  }
+
+  /** Make the current roll straight ahead (at most 30 degrees off level). The new centre, or null with no reading. */
+  recentreTilt(): number | null {
+    if (this.roll === null) return null;
+    this.tiltCenter = clampCenter(this.roll);
+    return this.tiltCenter;
+  }
+
+  private takeRoll(r: TiltReading): void {
+    const first = this.roll === null;
+    this.roll = filterRoll(this.roll, r, this.tiltCenter);
+    if (!first) return;
+    this.tiltWaiters.splice(0).forEach((f) => f());
+    this.onTiltLive?.();
   }
 
   read(): Controls {
@@ -84,11 +181,12 @@ export class Input {
     if (k.has('ArrowUp') || k.has('KeyW')) gas = 1;
     if (k.has('ArrowDown') || k.has('KeyS') || k.has('Space')) brake = 1;
 
-    if (this.touch.left) steer -= 1;
-    if (this.touch.right) steer += 1;
-    if (this.touch.gas) gas = 1;
-    if (this.touch.brake) brake = 1;
-    if (this.tiltEnabled && !this.touch.left && !this.touch.right) steer += this.tiltSteer;
+    // Touch steering (buttons or wheel) wins over tilt; tilt counts only once the sensor answers.
+    const t = this.touch;
+    if (t.steer !== null) steer += t.steer;
+    else if (this.tiltOn) steer += this.tiltSteer();
+    gas = Math.max(gas, t.gas);
+    brake = Math.max(brake, t.brake);
 
     const pad = this.readPad();
     if (pad) {
@@ -96,8 +194,15 @@ export class Input {
       gas = Math.max(gas, pad.gas);
       brake = Math.max(brake, pad.brake);
     }
+    // Any brake (the brake bar gives at least 0.55) lifts the automatic throttle.
     if (this.autoAccelerate && brake === 0) gas = Math.max(gas, 1);
-    return { steer: Math.max(-1, Math.min(1, steer)), gas, brake };
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+    return { steer: Math.max(-1, Math.min(1, steer)), gas: clamp01(gas), brake: clamp01(brake) };
+  }
+
+  /** Only the gamepad's button presses, for screens that don't read() (Start resumes a paused race). */
+  pollPad(): void {
+    this.readPad();
   }
 
   private readPad(): Controls | null {
@@ -110,8 +215,10 @@ export class Input {
     if (Math.abs(steer) < 0.12) steer = 0;
     if (pressed(14)) steer = -1;
     if (pressed(15)) steer = 1;
-    const gas = Math.max(b(7), pressed(0) ? 1 : 0);
-    const brake = Math.max(b(6), pressed(2) ? 1 : 0, pressed(1) ? 1 : 0);
+    // A trigger resting a hair off zero must read exactly 0 (rolling resistance needs it).
+    const trig = (v: number) => (v < 0.05 ? 0 : v);
+    const gas = Math.max(trig(b(7)), pressed(0) ? 1 : 0);
+    const brake = Math.max(trig(b(6)), pressed(2) ? 1 : 0, pressed(1) ? 1 : 0);
     // Edge-triggered actions.
     const map: [number, Action][] = [
       [3, 'respawn'],
@@ -121,7 +228,7 @@ export class Input {
     ];
     for (const [i, a] of map) {
       const now = pressed(i);
-      if (now && !this.padPrev[i] && this.enabled) this.actionHandler?.(a);
+      if (now && !this.padPrev[i] && this.enabled) this.actionHandler?.(a, 'gamepad');
       this.padPrev[i] = now;
     }
     return { steer, gas, brake };
@@ -160,4 +267,14 @@ function activatesFocused(e: KeyboardEvent): boolean {
   return e.code === 'Enter' && !!t && (t.tagName === 'BUTTON' || t.tagName === 'A');
 }
 
-export const isTouchDevice = (): boolean => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+/**
+ * iPhone, iPad or iPod, from the platform: requestPermission no longer tells (Chromium has it
+ * too). iPadOS says it is a Mac, but no Mac has a touchscreen.
+ */
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iP(hone|ad|od)/.test(navigator.userAgent ?? '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+export const isTouchDevice = (): boolean =>
+  typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);

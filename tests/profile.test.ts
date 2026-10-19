@@ -3,7 +3,9 @@ import { PHYSICS_VERSION } from '../src/core/constants';
 import {
   DEFAULT_CAR_COLOR,
   DEFAULT_NAME,
+  DEFAULT_SETTINGS,
   migrateProfile,
+  migrateSettings,
   PROFILE_VERSION,
   sanitizeColor,
   sanitizeName,
@@ -121,6 +123,88 @@ describe('migrateProfile', () => {
 
   it('survives non-object input', () => {
     for (const raw of [null, 5, 'x', [1, 2]]) expect(migrateProfile(raw, {}).name).toBe(DEFAULT_NAME);
+  });
+});
+
+describe('migrateSettings', () => {
+  it('gives the defaults for nothing stored', () => {
+    expect(migrateSettings({})).toEqual(DEFAULT_SETTINGS);
+    expect(DEFAULT_SETTINGS).toMatchObject({ steerMode: 'buttons', pedals: 'bars', tiltSensitivity: 0.5, tiltCenter: 0, tilt: false });
+  });
+
+  it('turns the old tilt switch into tilt steering', () => {
+    expect(migrateSettings({ tilt: true })).toMatchObject({ steerMode: 'tilt', tilt: true });
+    expect(migrateSettings({ tilt: false })).toMatchObject({ steerMode: 'buttons', tilt: false });
+  });
+
+  it('keeps a saved steering mode, with `tilt` (written by every build) deciding tilt', () => {
+    expect(migrateSettings({ steerMode: 'wheel', tilt: false }).steerMode).toBe('wheel');
+    expect(migrateSettings({ steerMode: 'wheel' }).steerMode).toBe('wheel');
+    expect(migrateSettings({ steerMode: 'tilt', tilt: true }).steerMode).toBe('tilt');
+    // An older APK turned tilt off, or on, after a downgrade.
+    expect(migrateSettings({ steerMode: 'tilt', tilt: false }).steerMode).toBe('buttons');
+    expect(migrateSettings({ steerMode: 'wheel', tilt: true }).steerMode).toBe('tilt');
+  });
+
+  it('keeps traction control and the racing line, with off and normal for anything else', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({ tractionControl: 'normal', racingLine: false });
+    expect(migrateSettings({ tractionControl: 'low', racingLine: true })).toMatchObject({ tractionControl: 'low', racingLine: true });
+    // An unknown level (a future 'off', say) or a tampered flag falls back.
+    expect(migrateSettings({ tractionControl: 'off', racingLine: 'yes' })).toMatchObject({ tractionControl: 'normal', racingLine: false });
+  });
+
+  it('falls back on or clamps tampered values', () => {
+    const s = migrateSettings({
+      steerMode: 'x',
+      pedals: 7,
+      tiltSensitivity: Number.NaN,
+      tiltCenter: 99,
+      autoAccelerate: 'yes',
+      controlsTipShown: 1,
+      tiltCenterSet: 'yes',
+    });
+    expect(s).toMatchObject({ steerMode: 'buttons', pedals: 'bars', tiltSensitivity: 0.5, tiltCenter: 30, autoAccelerate: false, controlsTipShown: false, tiltCenterSet: false });
+    expect(migrateSettings({ tiltCenter: 8, tiltCenterSet: true })).toMatchObject({ tiltCenter: 8, tiltCenterSet: true });
+    expect(migrateSettings({ tiltSensitivity: -3, tiltCenter: -99, pedals: 'buttons' })).toMatchObject({
+      tiltSensitivity: 0,
+      tiltCenter: -30,
+      pedals: 'buttons',
+    });
+    expect(migrateSettings({ tiltSensitivity: '0.9' }).tiltSensitivity).toBe(0.5);
+  });
+
+  it('keeps legacy and other keys', () => {
+    const s = migrateSettings({ playerName: 'Max', carColor: '#2f6fd6', quality: 'low', autoAccelerate: true }) as unknown as Record<string, unknown>;
+    expect(s).toMatchObject({ playerName: 'Max', carColor: '#2f6fd6', quality: 'low', autoAccelerate: true });
+  });
+});
+
+describe('Store settings', () => {
+  it('writes tilt for older APKs from the steering mode', () => {
+    const ls = useStorage({ 'vb.settings': JSON.stringify({ tilt: true, playerName: 'Max' }) });
+    const st = new Store();
+    expect(st.settings.steerMode).toBe('tilt');
+    st.settings.steerMode = 'wheel';
+    st.saveSettings();
+    const saved = JSON.parse(ls.getItem('vb.settings')!);
+    expect(saved).toMatchObject({ steerMode: 'wheel', tilt: false, playerName: 'Max' });
+    st.settings.steerMode = 'tilt';
+    st.saveSettings();
+    expect(JSON.parse(ls.getItem('vb.settings')!).tilt).toBe(true);
+    expect(new Store().settings.steerMode).toBe('tilt');
+  });
+});
+
+describe('Controls tab tilt sensitivity steps', () => {
+  it('shows 1..9 and maps back to 0..1', async () => {
+    const { sensStep, stepSens } = await import('../src/app/profileScreen');
+    expect(sensStep(0)).toBe(1);
+    expect(sensStep(0.5)).toBe(5);
+    expect(sensStep(1)).toBe(9);
+    expect(stepSens(5)).toBe(0.5);
+    expect(stepSens(0)).toBe(0);
+    expect(stepSens(12)).toBe(1);
+    for (let n = 1; n <= 9; n++) expect(sensStep(stepSens(n))).toBe(n);
   });
 });
 
@@ -273,6 +357,24 @@ describe('Store progress', () => {
     st.addFinish('c:A03', 30000, [10000]);
     expect(st.hasFinished('c:A03')).toBe(true);
     expect(new Store().hasFinished('c:A03')).toBe(true);
+  });
+
+  it('clears custom-track author times set under older physics, once, and keeps the tracks', () => {
+    const track = (id: string, authorTime?: number) => ({ id, updated: 1, data: { name: id, author: 'Max', blocks: [], authorTime } });
+    const ls = useStorage({
+      'vb.tracks': JSON.stringify([track('a', 12345), track('b')]),
+      'vb.editor.draft': JSON.stringify(track('d', 999)),
+    });
+    const st = new Store();
+    expect(st.customTracks().map((t) => [t.id, t.data.authorTime])).toEqual([
+      ['a', undefined],
+      ['b', undefined],
+    ]);
+    expect(st.editorDraft()?.data.authorTime).toBeUndefined();
+    expect(JSON.parse(ls.getItem('vb.tracks.physics')!)).toBe(PHYSICS_VERSION);
+    // A time set under this version survives the next launch.
+    st.saveCustomTrack(track('a', 4321));
+    expect(new Store().customTracks().find((t) => t.id === 'a')?.data.authorTime).toBe(4321);
   });
 
   it('resetProgress keeps the profile and photo but clears unlocks for good', () => {

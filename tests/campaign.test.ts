@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { PHYSICS_VERSION } from '../src/core/constants';
 import { runBot } from '../src/game/bot';
+import { assistsFor, TC_LEVELS, type Controls } from '../src/physics/vehicle';
+import authorTimes from '../src/track/authorTimes.json';
 import { buildTrack } from '../src/track/builder';
 import { CAMPAIGN_DEFS } from '../src/track/campaign';
 import { traceRoute } from '../src/track/route';
@@ -10,6 +13,13 @@ import { dubinsLength } from './dubins';
 const CUT_RADIUS = 20;
 /** Shortest grass path between two ground-level gates must be at least this share of the road. */
 const MIN_CUT_RATIO = 0.75;
+
+/** A phone player on the buttons: on/off steering (with a small dead zone), on/off gas and brake. */
+function touchStyle(c: Controls): Controls {
+  return { steer: Math.abs(c.steer) > 0.3 ? Math.sign(c.steer) : 0, gas: c.gas > 0.5 ? 1 : 0, brake: c.brake > 0 ? 1 : 0 };
+}
+
+const table = authorTimes as { physics: number; times: Record<string, number> };
 
 describe('campaign', () => {
   for (const [id, , name, code] of CAMPAIGN_DEFS) {
@@ -26,7 +36,22 @@ describe('campaign', () => {
       expect(res.respawns).toBe(0);
       // Attract mode replays the bot without respawn handling, and a pre-checkpoint flip restart hides from respawns.
       expect(res.autoRespawns, 'no automatic flip respawns').toBe(0);
+      // A stale table makes medals.ts run the bot on the main thread (a multi-second freeze on phones).
+      expect(table.physics, 'authorTimes.json is for this PHYSICS_VERSION').toBe(PHYSICS_VERSION);
+      expect(res.time, 'author time matches scripts/author-times.ts').toBe(table.times[id]);
     });
+  }
+
+  // Phone players drive with digital buttons; every traction-control setting must stay drivable with them.
+  for (const tc of TC_LEVELS) {
+    it(`a touch-style driver finishes every track cleanly with traction control ${tc}`, () => {
+      for (const [id, , name, code] of CAMPAIGN_DEFS) {
+        const track = new Track(buildTrack(`${id} ${name}`, code));
+        const res = runBot(track, 300, { assists: assistsFor(tc, false), filter: touchStyle });
+        expect(res.finished, id).toBe(true);
+        expect(res.respawns + res.autoRespawns, id).toBe(0);
+      }
+    }, 60000);
   }
 
   // Ground-level roads have no barriers and checkpoints count in any order, so the only thing

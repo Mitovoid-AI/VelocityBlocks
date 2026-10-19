@@ -1,5 +1,6 @@
-// Fixed-step vehicle simulation: a rigid body on four ray-cast suspension points,
-// grip-limited tyre forces, drift state, boost pads and impulse-based contacts.
+// Fixed-step vehicle simulation: a rigid body on four ray-cast suspension points, slip-angle
+// tyres, aero downforce, rear-wheel drive with traction control, ABS brakes, drift state,
+// boost pads and impulse-based contacts.
 // Pure TypeScript with no rendering dependencies so it runs identically in tests.
 
 import { DT, GRAVITY, MAX_SPEED } from '../core/constants';
@@ -51,6 +52,17 @@ export interface CarState {
   odometer: number;
   /** Seconds since any wheel last touched a surface. */
   airTime: number;
+  /**
+   * Drive torque traction control cut this step because of cornering, 0..1 (HUD lamp, engine note).
+   * Straight-line launches and drifts read 0: only "too much power for this corner" counts.
+   */
+  tc: number;
+  /** Rear wheelspin this step, 0..1 (smoke, tyre noise; peaks near 0.33); only on the low traction-control setting. */
+  spin: number;
+  /** Share of the brake pedal ABS held back this step, 0..1 (brake chatter); not part of slip. */
+  abs: number;
+  /** Downforce this step as a multiple of the car's weight (camera, HUD, wind). */
+  aero: number;
 }
 
 // ---- Tuning -----------------------------------------------------------------
@@ -81,15 +93,110 @@ for (const x of [1.0, -1.0]) for (const y of [-0.3, 0.55]) for (const z of [2.25
 /** Inverse inertia around local x (pitch), y (yaw), z (roll) for unit mass. */
 const INV_I = { x: 1 / 2.4, y: 1 / 2.6, z: 1 / 1.6 };
 
-const MU_ROAD = 2.1;
 const ADHESION = 34;
-const DOWNFORCE = 0.0016;
-const DRAG = 0.00021;
-const BRAKE = 24;
 const REVERSE_MAX = 16;
+
+// Tyres. Peak friction on asphalt; the front axle grips a little harder so the car turns in.
+const MU_ROAD = 2.1;
+const MU_FRONT = 1.1;
+/** Slip angle (rad) where a tyre's sideways force peaks; the stiffer rear keeps the car stable. */
+const PEAK_SLIP_F = 0.085;
+const PEAK_SLIP_R = 0.075;
+/**
+ * Share of peak grip a front tyre keeps when it slides far past its peak slip angle (it washes out:
+ * understeer). A sliding rear keeps all of its grip, so a slide stays catchable.
+ */
+const SLIDE_GRIP = 0.85;
+/** Slip angle (in peaks) beyond which a tyre counts as sliding for smoke and squeal. */
+const SLIP_SHOW = 1.3;
+/** Low-speed lateral limit: never more than removes this much sideways velocity per second (the old model). */
+const LAT_DAMP = (0.55 * 0.25) / DT;
+/** Rear grip (sideways and for drive) lost at full drift. */
+const DRIFT_GRIP = 0.62;
+
+// Aero. Downforce per unit mass per (m/s)^2 of forward speed: equals the car's weight at 214 km/h and
+// 2.2x at 330 km/h. It acts at the axles, through the springs, so it reaches the tyres only once.
+const AERO_CL = 0.0034;
+/** Share of the downforce on the front axle (a rearward balance keeps fast corners stable). */
+const AERO_FRONT = 0.44;
+const DRAG = 0.00026;
+
+// Brakes (ABS): the pedal asks for up to BRAKE_MAX, each tyre gives at most ABS_LIMIT of the grip
+// cornering leaves it.
+const BRAKE_MAX = 52;
+const BRAKE_FRONT = 0.6;
+const ABS_LIMIT = 0.97;
+/** Brake pedal above this while steering hard at speed starts a drift (the brake bar sends 0.55..1). */
+export const DRIFT_BRAKE = 0.5;
+/** Steering (the smoothed input, 0..1) beyond which the brake starts a drift. */
+export const DRIFT_STEER = 0.35;
+/** Brake deceleration while a brake tap starts a drift: the pre-downforce brakes, so the tap does not kill the slide. */
+const DRIFT_BRAKE_DECEL = 24;
+
+// Drive: rear wheels, locked axle. Traction control keeps the drive inside the rear tyres' grip
+// left over from cornering: 'normal' just under it, 'low' a little over it, so the tail slides
+// but can be caught.
+const TC_LIMIT = { normal: 0.95, low: 1.2 } as const;
+/**
+ * In a drift both settings let the drive use all the grip that is left: normal eases off so the slide
+ * keeps its speed, low tightens up because more power than that in a slide spins the car.
+ */
+const TC_DRIFT = 1.0;
+/** Wheelspin (only past the tyres' grip, so only on 'low') would reach 1 this far over it; 'low' peaks at 0.33. */
+const SPIN_RANGE = 0.6;
+/** Grass digs in for drive (cornering grip there is still the surface grip), so a car can drive off it. */
+const GRASS_TRACTION = 0.75;
+/** Rolling resistance plus engine braking when coasting (m/s^2 at rest, growth per m/s). */
+const COAST = 0.5;
+const COAST_V = 0.012;
+/** Pedal travel below this counts as released (trigger noise, a 1/255 input-log step). */
+const PEDAL_EPS = 0.01;
+
+// Steering: full lock at parking speed; at speed, what reaches the grip limit (see maxSteerAngle).
+const STEER_LOCK = 0.52;
+const STEER_GEO = 0.7;
+const STEER_SLIP = 1.0;
+const WHEELBASE = 2.8;
+/** Measured fits for maxLatAccel: the share of grip the tyres reach, and the lock-limited loss at low speed. */
+const LAT_REACH = 0.985;
+const LAT_LOCK = 42;
+
+/** Traction control setting. There is no "off": with digital pedals it is close to undriveable. */
+export type TcLevel = keyof typeof TC_LIMIT;
+export const TC_LEVELS: readonly TcLevel[] = ['normal', 'low'];
+
+/** Driver aids for a run. Not part of the input log: a replay must use the same values. */
+export interface Assists {
+  readonly tc: TcLevel;
+}
+export const DEFAULT_ASSISTS: Readonly<Assists> = Object.freeze({ tc: 'normal' });
+const LOW_TC: Readonly<Assists> = Object.freeze({ tc: 'low' });
+
+/**
+ * Assists for a player's settings. Auto-accelerate always drives with normal traction control:
+ * full throttle held through every corner needs it. Unknown values (old saves) are normal.
+ */
+export function assistsFor(tc: string | undefined, autoAccelerate: boolean): Readonly<Assists> {
+  return tc === 'low' && !autoAccelerate ? LOW_TC : DEFAULT_ASSISTS;
+}
+
+/**
+ * Lateral tyre force as a share of the available grip, by slip angle over peak slip angle. `slide` is
+ * the share left far past the peak (SLIDE_GRIP: a front tyre).
+ */
+export function tyreCurve(x: number, slide = SLIDE_GRIP): number {
+  if (x <= 1) return x * (1.5 - 0.5 * x * x);
+  return 1 - (1 - slide) * Math.min(1, (x - 1) / 2);
+}
+
+/** Flat-road tyre grip (m/s^2) at forward speed v: friction on weight plus downforce. */
+export function gripAccel(v: number): number {
+  return MU_ROAD * (GRAVITY + AERO_CL * v * v);
+}
+
 /**
  * Grass drag as a body force: rolling (m/s^2) plus quadratic (1/m) deceleration with a cap, scaled by
- * the wheels on grass. Tops out near 99 km/h, about the bot's tight-curve speed, so cutting does not pay.
+ * the wheels on grass. Tops out near 96 km/h, so cutting across it does not pay.
  * The cap only binds above about 166 km/h: a car that runs onto the grass at road speed loses it within
  * a second or so (250 -> 164 km/h with gas held), so short corner cuts cost time too.
  */
@@ -101,21 +208,26 @@ const FOOT_W = 1.0;
 const FOOT_F = 2.25;
 const FOOT_R = 2.15;
 
-/** Engine acceleration (m/s^2) by forward speed (m/s). */
+/**
+ * Engine acceleration (m/s^2) by forward speed (m/s). Below about 100 km/h it is more than the rear
+ * tyres can take, so launches are traction-limited.
+ */
 const ENGINE: [number, number][] = [
-  [0, 16],
-  [20, 14.5],
-  [40, 10.5],
-  [60, 6.4],
-  [75, 3.4],
-  [90, 1.7],
-  [110, 0.6],
-  [150, 0],
+  [0, 22],
+  [15, 20],
+  [30, 16],
+  [45, 11.5],
+  [60, 8],
+  [75, 5.2],
+  [90, 2.6],
+  [100, 1.4],
+  [120, 0],
 ];
 
 export const BOOST = { boost: { time: 1.0, power: 16 }, turbo: { time: 1.6, power: 26 } } as const;
 
-function engineAccel(v: number): number {
+/** Engine acceleration at forward speed v, before traction control and drag. */
+export function engineAccel(v: number): number {
   if (v <= 0) return ENGINE[0][1];
   for (let n = 1; n < ENGINE.length; n++) {
     const [v1, a1] = ENGINE[n];
@@ -127,8 +239,37 @@ function engineAccel(v: number): number {
   return 0;
 }
 
-function maxSteerAngle(speed: number): number {
-  return 0.52 / (1 + Math.abs(speed) / 22);
+/**
+ * Full-lock front wheel angle (rad) at forward speed v. At speed the lock shrinks to what puts the
+ * front tyres just past their peak slip angle on the tightest grip-limited circle, so a digital
+ * (touch, keyboard) full steer rides the grip limit instead of scrubbing far beyond it.
+ */
+export function maxSteerAngle(speed: number): number {
+  const v = Math.abs(speed);
+  const geo = (WHEELBASE * STEER_GEO * gripAccel(v)) / Math.max(1, v * v);
+  return Math.min(STEER_LOCK, geo + STEER_SLIP * PEAK_SLIP_F);
+}
+
+/**
+ * Steady cornering limit (m/s^2) on a flat road at speed v, as a skidpad measures it (best steering
+ * input, speed held), within a few percent. Below about 100 km/h the steering lock, not the tyres,
+ * sets it. For speed planners (the racing line); they keep their own safety margin.
+ */
+export function maxLatAccel(v: number): number {
+  return gripAccel(v) * clamp(LAT_REACH - LAT_LOCK / Math.max(1, v * v), 0.25, 1);
+}
+
+/**
+ * Straight-line full-brake deceleration (m/s^2) on a flat road at speed v, ABS and drag included.
+ * Without a speed it is the low-speed (smallest) value.
+ */
+export function maxBrakeDecel(v = 0): number {
+  const df = AERO_CL * v * v;
+  // Each axle gives its share of the pedal, or what ABS lets its grip give (braking moves about 2% of
+  // the weight forward, so each axle carries half of it).
+  const front = Math.min(BRAKE_MAX * BRAKE_FRONT, ABS_LIMIT * MU_ROAD * MU_FRONT * (GRAVITY / 2 + df * AERO_FRONT));
+  const rear = Math.min(BRAKE_MAX * (1 - BRAKE_FRONT), ABS_LIMIT * MU_ROAD * (GRAVITY / 2 + df * (1 - AERO_FRONT)));
+  return front + rear + DRAG * v * v;
 }
 
 // ---- State helpers ------------------------------------------------------------
@@ -155,6 +296,10 @@ export function createCar(track: Track): CarState {
     onGrass: false,
     odometer: 0,
     airTime: 0,
+    tc: 0,
+    spin: 0,
+    abs: 0,
+    aero: 0,
   };
 }
 
@@ -235,12 +380,31 @@ function resolveContact(c: CarState, r: V3, n: V3, restitution: number, friction
   return jn;
 }
 
+/** One grounded wheel between the passes of stepCar. */
+interface Tyre {
+  front: boolean;
+  /** Spring force: the tyre load (downforce reaches it through the springs). */
+  fs: number;
+  r: V3;
+  wf: V3;
+  ws: V3;
+  vLong: number;
+  fLat: number;
+  fLong: number;
+  /** Sideways grip. */
+  maxF: number;
+  /** Drive traction (grass digs in, so it is nearly road-like there). */
+  tract: number;
+  /** Friction circle radius used for the final clamp. */
+  circle: number;
+}
+
 export interface StepEvents {
   /** Strongest hull/wall impact speed this step (for sound/camera shake). */
   impact: number;
 }
 
-export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
+export function stepCar(c: CarState, ctl: Controls, track: Track, assists: Readonly<Assists> = DEFAULT_ASSISTS): StepEvents {
   const dt = DT;
   const events: StepEvents = { impact: 0 };
 
@@ -248,6 +412,10 @@ export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
   const target = clamp(ctl.steer, -1, 1);
   const rate = Math.abs(target) < Math.abs(c.steer) || Math.sign(target) !== Math.sign(c.steer) ? 9 : 5;
   c.steer += clamp(target - c.steer, -rate * dt, rate * dt);
+
+  // Analog pedals; a hair of travel is released, so trigger noise never stops the car coasting.
+  const gas = ctl.gas >= PEDAL_EPS ? Math.min(1, ctl.gas) : 0;
+  const brake = ctl.brake >= PEDAL_EPS ? Math.min(1, ctl.brake) : 0;
 
   const fwd = qrotate(c.rot, { x: 0, y: 0, z: 1 });
   const up = qrotate(c.rot, { x: 0, y: 1, z: 0 });
@@ -259,7 +427,7 @@ export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
   const torque: V3 = { x: 0, y: 0, z: 0 };
 
   // Drift: brake while steering hard at speed breaks rear traction.
-  const wantsDrift = ctl.brake > 0.5 && Math.abs(c.steer) > 0.35 && speedF > 18 && c.grounded >= 2;
+  const wantsDrift = brake > DRIFT_BRAKE && Math.abs(c.steer) > DRIFT_STEER && speedF > 18 && c.grounded >= 2;
   if (wantsDrift) c.drift = Math.min(1, c.drift + dt * 6);
   else if (Math.abs(c.steer) < 0.2 || speedF < 12) c.drift = Math.max(0, c.drift - dt * 2.5);
   else c.drift = Math.max(0, c.drift - dt * 0.35);
@@ -271,9 +439,18 @@ export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
   let grounded = 0;
   let grassWheels = 0;
   let slipSum = 0;
-  const downforce = DOWNFORCE * speed * speed;
+  let tcCut = 0;
+  let spin = 0;
+  const vAero = Math.max(0, speedF);
+  const downforce = AERO_CL * vAero * vAero;
   const engine = engineAccel(speedF);
+  const braking = brake > 0 && speedF > 0.8;
+  const reversing = brake > 0 && !braking && speedF > -REVERSE_MAX;
+  const driving = gas > 0 && !(brake > 0 && speedF <= 0.8);
+  const coasting = gas === 0 && brake === 0;
 
+  // Pass 1: suspension, contact frame and the tyres' sideways force for every wheel.
+  const tyres: (Tyre | null)[] = [null, null, null, null];
   for (let w = 0; w < 4; w++) {
     const r0 = qrotate(c.rot, WHEELS[w]);
     const ax = c.pos.x + r0.x, ay = c.pos.y + r0.y, az = c.pos.z + r0.z;
@@ -312,9 +489,6 @@ export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
     const dist = RAY - comp;
     const r = { x: r0.x - up.x * dist, y: r0.y - up.y * dist, z: r0.z - up.z * dist };
 
-    // Suspension force along the car's up axis.
-    let fx = up.x * fs, fy = up.y * fs, fz = up.z * fs;
-
     // Tyre frame on the contact plane.
     const front = w < 2;
     let wf = front
@@ -330,37 +504,99 @@ export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
     const vLong = vdot(vp, wf);
     const vLat = vdot(vp, ws);
 
-    const load = fs + downforce * 0.25;
-    const gripMul = hit.grip * (front ? 1 : 1 - 0.62 * c.drift);
-    const maxF = MU_ROAD * gripMul * load;
+    // Tyre load is the spring force alone: downforce reaches it through the springs (no double count).
+    const maxF = MU_ROAD * hit.grip * (front ? MU_FRONT : 1 - DRIFT_GRIP * c.drift) * fs;
+    // Lateral: slip-angle tyre (progressive at speed), never more than removes the sideways velocity
+    // this step (the old model), which keeps parking speeds stable.
+    const alpha = Math.atan2(Math.abs(vLat), Math.max(Math.abs(vLong), 1));
+    const peak = front ? PEAK_SLIP_F : PEAK_SLIP_R;
+    const fLat = -Math.sign(vLat) * Math.min(Math.abs(vLat) * LAT_DAMP, maxF * tyreCurve(alpha / peak, front ? SLIDE_GRIP : 1));
+    // Past the peak the tyre is sliding: smoke and squeal.
+    if (alpha > peak * SLIP_SHOW && maxF > 0.5) slipSum += Math.min(1, (alpha / peak - SLIP_SHOW) / 1.5);
+    const tract = MU_ROAD * Math.max(hit.grip, GRASS_TRACTION) * (front ? MU_FRONT : 1 - DRIFT_GRIP * c.drift) * fs;
+    tyres[w] = { front, fs, r, wf, ws, vLong, fLat, fLong: 0, maxF, tract, circle: maxF };
+  }
 
-    // Lateral: remove a fraction of the sideways velocity each step, limited by grip.
-    let fLat = -vLat * (0.25 / dt) * 0.55;
+  // Pass 2: drive on the rear axle (both wheels share it, like a locked differential).
+  if (driving) {
+    const want = engine * gas;
+    let cap = 0;
+    let room = 0;
+    for (const t of tyres) {
+      if (!t || t.front) continue;
+      cap += t.tract;
+      room += Math.sqrt(Math.max(0, t.tract * t.tract - t.fLat * t.fLat));
+    }
+    if (cap > 0) {
+      // Traction control: no more drive than the grip cornering leaves ('low' allows a little over it).
+      const base = TC_LIMIT[assists.tc] ?? TC_LIMIT.normal;
+      const level = lerp(base, TC_DRIFT, clamp((c.drift - 0.2) / 0.3, 0, 1));
+      const lim = level * room;
+      const drive = Math.min(want, lim);
+      // The lamp reads the cut cornering causes; a launch is limited by straight-line grip anyway,
+      // and a drift is meant to slide.
+      if (want > lim && c.drift <= 0.2) tcCut = 1 - lim / Math.min(want, level * cap);
+      // Wheelspin past the tyres' grip ('low' only).
+      const s = room > 0 ? clamp((drive / room - 1) / SPIN_RANGE, 0, 1) : 0;
+      spin = s;
+      for (const t of tyres) {
+        if (!t || t.front) continue;
+        t.fLong = (drive * t.tract) / cap;
+        t.circle = Math.max(t.maxF, t.tract);
+        if (s > 0) {
+          // A spinning tyre's friction circle trims its sideways force along with the drive: the
+          // tail steps out by as much as the throttle is over the grip (power oversteer).
+          const over = Math.hypot(t.fLat, t.fLong) / t.tract;
+          if (over > 1) {
+            t.fLat /= over;
+            t.fLong /= over;
+          }
+        }
+      }
+    }
+  }
 
-    // Longitudinal.
-    let fLong = 0;
-    if (ctl.brake > 0 && speedF > 0.8) {
-      fLong -= BRAKE * 0.25 * ctl.brake * Math.sign(vLong || 1);
-    } else if (ctl.brake > 0 && speedF > -REVERSE_MAX) {
-      fLong -= 9 * 0.25 * ctl.brake;
+  // Pass 3: brakes, coasting, the friction circle, and the forces on the body.
+  // A brake tap that starts a drift gets the old pre-downforce brakes, so the slide keeps its speed.
+  // From the tick steer + brake go down (the raw input), not ~70 ms later when the smoothed steering
+  // passes DRIFT_STEER: keys and touch buttons press both at once.
+  const tapping =
+    brake > DRIFT_BRAKE && Math.max(Math.abs(c.steer), Math.abs(target)) > DRIFT_STEER && speedF > 18 && c.grounded >= 2;
+  const brakeMax = tapping ? DRIFT_BRAKE_DECEL : BRAKE_MAX;
+  let absWant = 0;
+  let absHeld = 0;
+  for (const t of tyres) {
+    if (!t) continue;
+    const { front, fs, r, wf, ws, vLong, maxF, circle } = t;
+    let { fLat, fLong } = t;
+    if (braking) {
+      // ABS: the pedal asks for its share of brakeMax; the tyre gives what its grip has left after
+      // cornering, so the car still steers under braking.
+      const want = brakeMax * (front ? BRAKE_FRONT : 1 - BRAKE_FRONT) * 0.5 * brake;
+      const lim = ABS_LIMIT * Math.sqrt(Math.max(0, maxF * maxF - fLat * fLat));
+      absWant += want;
+      if (want > lim) absHeld += want - lim;
+      fLong -= Math.min(want, lim) * Math.sign(vLong || 1);
+    } else if (reversing) {
+      fLong -= 9 * 0.25 * brake;
     }
-    if (ctl.gas > 0 && !(ctl.brake > 0 && speedF <= 0.8)) {
-      fLong += engine * 0.25 * ctl.gas;
-    }
-    if (ctl.gas === 0 && ctl.brake === 0) {
-      // Rolling resistance; holds the car still at very low speed.
-      fLong += Math.abs(vLong) < 0.6 ? -vLong * (0.25 / dt) * 0.3 : -Math.sign(vLong) * 0.25 * 0.5;
+    if (coasting) {
+      // Rolling resistance and engine braking (on the driven rear axle); holds the car still at very low speed.
+      const coast = (COAST + COAST_V * Math.abs(vLong)) * 0.25 * (front ? 0.5 : 1.5);
+      fLong += Math.abs(vLong) < 0.6 ? -vLong * (0.25 / dt) * 0.3 : -Math.sign(vLong) * coast;
     }
 
     const tot = Math.sqrt(fLat * fLat + fLong * fLong);
-    if (tot > maxF) {
-      const s = maxF / tot;
-      slipSum += Math.min(1, (tot - maxF) / (maxF + 1));
+    if (tot > circle) {
+      const s = circle / tot;
+      slipSum += Math.min(1, (tot - circle) / (circle + 1));
       fLat *= s;
       fLong *= s;
     }
     if (c.drift > 0.2 && !front) slipSum += c.drift * 0.5;
 
+    // Suspension force along the car's up axis.
+    const fx = up.x * fs, fy = up.y * fs, fz = up.z * fs;
     const tx = wf.x * fLong + ws.x * fLat;
     const ty = wf.y * fLong + ws.y * fLat;
     const tz = wf.z * fLong + ws.z * fLat;
@@ -380,7 +616,11 @@ export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
 
   c.grounded = grounded;
   c.onGrass = grassWheels >= 2;
-  c.slip = grounded ? clamp(slipSum / 2, 0, 1) : 0;
+  // Sliding tyres and wheelspin only: ABS and traction control have their own signals.
+  c.slip = grounded ? clamp((slipSum + spin) / 2, 0, 1) : 0;
+  c.tc = tcCut;
+  c.spin = spin;
+  c.abs = absWant > 0 ? absHeld / absWant : 0;
 
   c.airTime = grounded > 0 ? 0 : c.airTime + dt;
 
@@ -398,11 +638,21 @@ export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
   }
 
   if (grounded > 0) {
-    // Downforce pushes the car into the track.
+    // Downforce pushes the car into the track at the axles (aero balance), through the springs into the tyres.
     const df = downforce * (grounded / 4);
-    force.x -= up.x * df;
-    force.y -= up.y * df;
-    force.z -= up.z * df;
+    c.aero = df / GRAVITY;
+    for (const [z, share] of [[1.45, AERO_FRONT], [-1.35, 1 - AERO_FRONT]] as const) {
+      const f = df * share;
+      const ra = qrotate(c.rot, { x: 0, y: -0.15, z });
+      const fa = { x: -up.x * f, y: -up.y * f, z: -up.z * f };
+      force.x += fa.x;
+      force.y += fa.y;
+      force.z += fa.z;
+      const ta = vcross(ra, fa);
+      torque.x += ta.x;
+      torque.y += ta.y;
+      torque.z += ta.z;
+    }
     // Drift yaw assist: keeps a committed slide rotating with the steering.
     if (c.drift > 0) {
       const yaw = c.steer * c.drift * 3.2;
@@ -411,7 +661,9 @@ export function stepCar(c: CarState, ctl: Controls, track: Track): StepEvents {
       torque.z -= up.z * yaw;
     }
   } else {
-    // Airborne: gentle roll levelling and nose alignment with the flight path.
+    // Airborne: gentle roll levelling and nose alignment with the flight path (and no downforce,
+    // so jumps keep their length).
+    c.aero = 0;
     const worldUp = { x: 0, y: 1, z: 0 };
     const rollErr = vdot(vcross(up, worldUp), fwd);
     const rollT = rollErr * 3.0;

@@ -293,7 +293,19 @@
   font-size: 12px;
 }
 
-/* ---- Controls tab ---- */
+/* ---- Controls tab: label / choice rows, then the switches ---- */
+.pf-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+}
+/* Not .pf-label: the `.pf-label ~ .pf-label` margins would stagger the grid rows. */
+.pf-glabel {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+}
 .seg {
   display: flex;
   gap: 6px;
@@ -301,6 +313,39 @@
 .seg .btn {
   flex: 1;
   text-align: center;
+}
+.pf-tilt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pf-tilt .btn {
+  flex-shrink: 0;
+  text-align: center;
+}
+.pf-sens {
+  min-width: 1.4em;
+  text-align: center;
+  font-weight: 800;
+}
+/* Live tilt steering, -1..1 from the middle (a negative scale grows to the left). */
+.pf-gauge {
+  position: relative;
+  flex: 1 1 40px;
+  min-width: 30px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.pf-gauge > span {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  transform-origin: left center;
+  transform: scaleX(var(--x, 0));
+  background: var(--accent-2);
 }
 .pf-switches {
   display: flex;
@@ -383,7 +428,10 @@
      panel: 2x10 padding + 2 border = 22, so content may use 340 - 39 - 36 - 22 = 243
        driver: max(avatar 84, input 33 + 6 + buttons 28 + 6 + note 2x16) = 105
        car:    label 16 + 6 + swatches 24 + 12 + label 16 + 6 + bodies 50 + 6 + note 16 = 152
-       controls: label 16 + 6 + seg 30 + 12 + label 16 + 6 + 3 switches x 30 + 2 x 4 = 184
+       controls (touch, tilt chosen): rows camera, steering, pedals, tilt 4 x 30 + 3 x 6 = 138,
+         + 6 + switches (two side by side) 26 = 170; without tilt 134; no touchscreen 62
+       controls width: 332 - label column ~62 - gap 10 leaves 260 for a row:
+         Buttons / Wheel / Tilt ~190; minus, 9, plus, Recentre ~150 + 4 x 6 gaps leaves the gauge ~80
        setup (no tabs, so +36): identity 105 + 10 + button 38 + 6 + note 3x16 = 207
    Width budget at 640: column 358, panel content 358 - 2x12 - 2 = 332
      header: Back 70 + Done 56 + gaps 3x8 leaves 182 for the h2 (20px, "Driver profile" ~160);
@@ -412,6 +460,7 @@
   }
   .pf-tabs .btn.small,
   .seg .btn.small,
+  .pf-tilt .btn.small,
   .pf-photo-btns .btn.small {
     padding: 6px 8px;
     font-size: 13px;
@@ -458,8 +507,9 @@
     height: 21px;
   }
   .pf-switches {
-    flex-direction: column;
-    gap: 4px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 10px;
   }
   .pf-switch {
     font-size: 13px;
@@ -488,14 +538,5 @@
   }
   .hp-name {
     font-size: 14px;
-  }
-}
-
-/* 800x360 has room for the switches side by side again (column 448). */
-@media (max-height: 520px) and (min-width: 760px) {
-  .pf-switches {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 4px 16px;
   }
 }

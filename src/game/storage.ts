@@ -7,13 +7,34 @@ import { isPhotoDataUrl } from '../core/photo';
 import type { TrackData } from '../track/track';
 import { decodeGhost, encodeGhost, type Ghost } from './ghost';
 
+/** Touch steering: the ◀ ▶ buttons, an on-screen wheel, or tilting the device. */
+export type SteerMode = 'buttons' | 'wheel' | 'tilt';
+export const STEER_MODES: readonly SteerMode[] = ['buttons', 'wheel', 'tilt'];
+/** Touch gas and brake: analog side bars, or the round on/off buttons. */
+export type PedalMode = 'bars' | 'buttons';
+
 export interface Settings {
   quality: 'low' | 'medium' | 'high';
   volume: number;
   camera: 'chase' | 'far' | 'hood';
   showGhost: boolean;
   autoAccelerate: boolean;
+  steerMode: SteerMode;
+  pedals: PedalMode;
+  /** Tilt steering: 0 (gentle, full lock at 35 degrees) .. 1 (sharp, 12 degrees). */
+  tiltSensitivity: number;
+  /** Tilt steering: the device roll that means straight ahead, in degrees (-30..30). */
+  tiltCenter: number;
+  /** tiltCenter was set with the profile's Recentre: races keep it instead of taking straight ahead at GO. */
+  tiltCenterSet: boolean;
+  /** The one-time "New: steering wheel, tilt and pedal bars" toast has been shown. */
+  controlsTipShown: boolean;
+  /** steerMode === 'tilt', kept for older APKs, which read only this (saveSettings syncs it). */
   tilt: boolean;
+  /** Traction control (TcLevel in physics/vehicle): 'low' lets the rear wheels spin. Auto-accelerate always races on 'normal'. */
+  tractionControl: 'normal' | 'low';
+  /** Show the coloured racing line on the road (green throttle, yellow lift, red brake). */
+  racingLine: boolean;
   // Older builds also kept playerName and carColor here. They now live in Profile, but the
   // keys stay in the stored object (and in memory), so an older APK still finds them.
 }
@@ -117,8 +138,46 @@ export const DEFAULT_SETTINGS: Settings = {
   camera: 'chase',
   showGhost: true,
   autoAccelerate: false,
+  steerMode: 'buttons',
+  pedals: 'bars',
+  tiltSensitivity: 0.5,
+  tiltCenter: 0,
+  tiltCenterSet: false,
+  controlsTipShown: false,
   tilt: false,
+  tractionControl: 'normal',
+  racingLine: false,
 };
+
+/** A finite number clamped to lo..hi, else the fallback. */
+function num(v: unknown, lo: number, hi: number, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback;
+}
+
+/**
+ * Settings from what is stored: defaults for missing keys, and the control keys validated.
+ * Legacy and unknown keys pass through, so an older APK finds its own keys again. `tilt` is
+ * written by every build, so it decides tilt or not: a tilt switch flipped in an older APK
+ * after a downgrade wins over the steerMode it carried along.
+ */
+export function migrateSettings(raw: Record<string, unknown>): Settings {
+  const saved = STEER_MODES.includes(raw.steerMode as SteerMode) ? (raw.steerMode as SteerMode) : 'buttons';
+  const steerMode: SteerMode = raw.tilt === true ? 'tilt' : saved === 'tilt' ? 'buttons' : saved;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...raw,
+    autoAccelerate: raw.autoAccelerate === true,
+    steerMode,
+    tilt: steerMode === 'tilt',
+    pedals: raw.pedals === 'buttons' ? 'buttons' : 'bars',
+    tiltSensitivity: num(raw.tiltSensitivity, 0, 1, DEFAULT_SETTINGS.tiltSensitivity),
+    tiltCenter: num(raw.tiltCenter, -30, 30, DEFAULT_SETTINGS.tiltCenter),
+    tiltCenterSet: raw.tiltCenterSet === true,
+    controlsTipShown: raw.controlsTipShown === true,
+    tractionControl: raw.tractionControl === 'low' ? 'low' : 'normal',
+    racingLine: raw.racingLine === true,
+  } as Settings;
+}
 
 export class Store {
   settings: Settings;
@@ -135,7 +194,7 @@ export class Store {
   constructor() {
     const rawSettings = asObject(read<unknown>('settings', {}));
     // Legacy playerName/carColor ride along untouched, so saveSettings writes them back.
-    this.settings = { ...DEFAULT_SETTINGS, ...rawSettings } as Settings;
+    this.settings = migrateSettings(rawSettings);
     this.records = asObject(read<unknown>(`records.v${PHYSICS_VERSION}`, {})) as Record<string, RunRecord>;
     this.finished = this.loadFinished();
     const unlocks = read<unknown>('unlocks.ad', []);
@@ -154,9 +213,31 @@ export class Store {
     // If this write fails the legacy keys are still there, so the next launch migrates again.
     if (rawProfile === null) this.saveProfile();
     this.pruneOldGhosts();
+    this.dropStaleAuthorTimes();
+  }
+
+  /**
+   * A custom track's author time is a test drive under the physics of the day. Records and ghosts
+   * are kept per PHYSICS_VERSION; these carry no version, so they are cleared once after a bump and
+   * the next finished test drive sets a fresh one.
+   */
+  private dropStaleAuthorTimes(): void {
+    if (read<unknown>('tracks.physics', null) === PHYSICS_VERSION) return;
+    const strip = (t: unknown): unknown => {
+      const s = asObject(t) as Partial<SavedTrack>;
+      return s.data && typeof s.data === 'object' ? { ...s, data: { ...s.data, authorTime: undefined } } : t;
+    };
+    let ok = true;
+    const list = read<unknown>('tracks', []);
+    if (Array.isArray(list) && list.length) ok = write('tracks', list.map(strip)) && ok;
+    const draft = read<unknown>('editor.draft', null);
+    if (draft) ok = write('editor.draft', strip(draft)) && ok;
+    // A failed write (storage full) tries again on the next launch.
+    if (ok) write('tracks.physics', PHYSICS_VERSION);
   }
 
   saveSettings(): void {
+    this.settings.tilt = this.settings.steerMode === 'tilt';
     write('settings', this.settings);
   }
 

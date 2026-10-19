@@ -3,8 +3,9 @@
 // Every change is saved at once and reported through app.profileChanged().
 
 import { CAR_BODIES, CAR_BODY_NOTE, isCarBody } from '../core/cars';
-import { DEFAULT_NAME, PROFILE_NAME_MAX, sanitizeColor, sanitizeName, type Profile } from '../game/storage';
+import { DEFAULT_NAME, PROFILE_NAME_MAX, sanitizeColor, sanitizeName, STEER_MODES, type PedalMode, type Profile } from '../game/storage';
 import { isTouchDevice } from '../input/input';
+import { STEER_LABEL } from '../input/touchModel';
 import { avatarSrc } from '../ui/avatarArt';
 import { $, esc, pickImageFile, showScreen, toast } from '../ui/dom';
 import { PHOTO_MAX_FILE_BYTES, squarePhoto } from '../ui/photo';
@@ -26,6 +27,19 @@ const CAMERAS = [
   { id: 'far', label: 'Far' },
   { id: 'hood', label: 'Hood' },
 ] as const;
+const PEDALS: readonly { id: PedalMode; label: string }[] = [
+  { id: 'bars', label: 'Bars' },
+  { id: 'buttons', label: 'On / off' },
+];
+/** Traction control (physics TcLevel). Low lets the rear wheels spin out of corners. */
+const TRACTION = [
+  { id: 'normal', label: 'Normal' },
+  { id: 'low', label: 'Low' },
+] as const;
+
+/** Tilt sensitivity as the 1..9 shown in the Controls tab, and back. */
+export const sensStep = (sens: number): number => Math.round(Math.min(1, Math.max(0, sens)) * 8) + 1;
+export const stepSens = (step: number): number => (Math.min(9, Math.max(1, Math.round(step))) - 1) / 8;
 
 // Reopening the editor returns to the tab used last.
 let lastTab: Tab = 'driver';
@@ -95,17 +109,45 @@ function carHtml(p: Profile): string {
 const switchHtml = (k: string, label: string, on: boolean): string =>
   `<button class="pf-switch" data-act="switch" data-k="${k}" role="switch" aria-checked="${on}"><span class="pf-box" aria-hidden="true"></span><span>${label}</span></button>`;
 
+/** A row of choice buttons (seg); `act` is the data-act, the value goes in data-v. */
+const segHtml = (id: string, act: string, opts: readonly { id: string; label: string }[], cur: string): string =>
+  `<div class="seg" role="group" aria-labelledby="${id}">${opts
+    .map((o) => `<button class="btn small ${o.id === cur ? 'sel' : ''}" data-act="${act}" data-v="${o.id}" aria-pressed="${o.id === cur}">${o.label}</button>`)
+    .join('')}</div>`;
+
+// Steppers, not <input type=range>, so a second-finger tap works on them like on every other control.
+function tiltHtml(app: App): string {
+  const s = app.store.settings;
+  return `<div class="pf-glabel pf-tilt-row ${s.steerMode === 'tilt' ? '' : 'hidden'}" id="pf-tilt-l">Tilt</div>
+    <div class="pf-tilt pf-tilt-row ${s.steerMode === 'tilt' ? '' : 'hidden'}" role="group" aria-labelledby="pf-tilt-l">
+      <button class="btn small" data-act="sens" data-d="-1" aria-label="Less sensitive">&minus;</button>
+      <span class="pf-sens" aria-label="Sensitivity">${sensStep(s.tiltSensitivity)}</span>
+      <button class="btn small" data-act="sens" data-d="1" aria-label="More sensitive">+</button>
+      <button class="btn small" data-act="recentre">Recentre</button>
+      <span class="pf-gauge" aria-hidden="true"><span></span></span>
+    </div>`;
+}
+
 function controlsHtml(app: App): string {
   const s = app.store.settings;
-  const cams = CAMERAS.map(
-    (c) => `<button class="btn small ${c.id === s.camera ? 'sel' : ''}" data-act="cam" data-cam="${c.id}" aria-pressed="${c.id === s.camera}">${c.label}</button>`,
-  ).join('');
-  return `<div class="pf-label" id="pf-cam-l">Start camera</div>
-    <div class="seg" role="group" aria-labelledby="pf-cam-l">${cams}</div>
-    <div class="pf-label">Driving</div>
+  const touch = isTouchDevice();
+  const steer = touch
+    ? `<div class="pf-glabel" id="pf-steer-l">Steering</div>
+      ${segHtml('pf-steer-l', 'steer', STEER_MODES.map((m) => ({ id: m, label: STEER_LABEL[m] })), s.steerMode)}
+      <div class="pf-glabel" id="pf-pedal-l">Pedals</div>
+      ${segHtml('pf-pedal-l', 'pedals', PEDALS, s.pedals)}
+      ${tiltHtml(app)}`
+    : '';
+  return `<div class="pf-grid">
+      <div class="pf-glabel" id="pf-cam-l">Camera</div>
+      ${segHtml('pf-cam-l', 'cam', CAMERAS, s.camera)}
+      ${steer}
+      <div class="pf-glabel" id="pf-tc-l" title="Auto-accelerate always uses Normal">Traction</div>
+      ${segHtml('pf-tc-l', 'tc', TRACTION, s.autoAccelerate ? 'normal' : s.tractionControl)}
+    </div>
     <div class="pf-switches">
-      ${switchHtml('tilt', 'Tilt steering', s.tilt)}
       ${switchHtml('auto', 'Auto-accelerate', s.autoAccelerate)}
+      ${switchHtml('line', 'Racing line', s.racingLine)}
       ${switchHtml('badge', 'Photo above my car', app.store.profile.showBadge)}
     </div>`;
 }
@@ -174,6 +216,15 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       x.setAttribute(aria, String(x === b));
     });
   const setSwitch = (b: HTMLElement, on: boolean) => b.setAttribute('aria-checked', String(on));
+  // Auto-accelerate races on Normal traction control (physics assistsFor), so the choice is shown as Normal and locked.
+  const syncTraction = () => {
+    const shown = s.autoAccelerate ? 'normal' : s.tractionControl;
+    el.querySelectorAll<HTMLButtonElement>('.seg [data-act="tc"]').forEach((x) => {
+      x.disabled = s.autoAccelerate;
+      x.classList.toggle('sel', x.dataset.v === shown);
+      x.setAttribute('aria-pressed', String(x.dataset.v === shown));
+    });
+  };
 
   el = showScreen(mode === 'setup' ? setupHtml(app) : editHtml(app), `profile garage ${mode === 'setup' ? 'setup' : 'edit'}`, {
     back: leave,
@@ -210,28 +261,72 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       app.profileChanged('body');
     },
     cam: (b) => {
-      const v = CAMERAS.find((c) => c.id === b.dataset.cam);
+      const v = CAMERAS.find((c) => c.id === b.dataset.v);
       if (!v) return;
       // No applySettings: it would also move the menu camera off 'far'. RaceMode reads it.
       s.camera = v.id;
       store.saveSettings();
       selectIn('.seg [data-act="cam"]', b, 'aria-pressed');
     },
+    steer: (b) => {
+      const m = STEER_MODES.find((x) => x === b.dataset.v);
+      if (!m) return;
+      selectIn('.seg [data-act="steer"]', b, 'aria-pressed');
+      // Tilt may be refused (no sensor, permission denied): show what was kept.
+      void app.setSteerMode(m).then(() => {
+        const cur = el.querySelector<HTMLElement>(`.seg [data-act="steer"][data-v="${s.steerMode}"]`);
+        if (cur) selectIn('.seg [data-act="steer"]', cur, 'aria-pressed');
+        el.querySelectorAll('.pf-tilt-row').forEach((x) => x.classList.toggle('hidden', s.steerMode !== 'tilt'));
+      });
+    },
+    pedals: (b) => {
+      const v = PEDALS.find((p) => p.id === b.dataset.v);
+      if (!v) return;
+      s.pedals = v.id;
+      store.saveSettings();
+      app.applyControls();
+      selectIn('.seg [data-act="pedals"]', b, 'aria-pressed');
+    },
+    tc: (b) => {
+      const v = TRACTION.find((t) => t.id === b.dataset.v);
+      if (!v || s.autoAccelerate) return;
+      // RaceMode reads it when a run starts or restarts.
+      s.tractionControl = v.id;
+      store.saveSettings();
+      syncTraction();
+    },
+    sens: (b) => {
+      s.tiltSensitivity = stepSens(sensStep(s.tiltSensitivity) + Number(b.dataset.d));
+      store.saveSettings();
+      app.applyControls();
+      const n = el.querySelector('.pf-sens');
+      if (n) n.textContent = String(sensStep(s.tiltSensitivity));
+    },
+    recentre: () => {
+      const c = app.input.recentreTilt();
+      if (c === null) {
+        toast('No tilt reading yet. Hold the device the way you drive, then try again.', 3000);
+        return;
+      }
+      // Kept for every race: the automatic centre at GO stops.
+      s.tiltCenter = Math.round(c * 10) / 10;
+      s.tiltCenterSet = true;
+      store.saveSettings();
+      toast('Straight ahead set for every race');
+    },
     switch: (b) => {
       const on = b.getAttribute('aria-checked') !== 'true';
       switch (b.dataset.k) {
-        case 'tilt': {
-          // toggleTilt takes a checkbox: it unchecks it (and toasts) when sensors are denied.
-          const t = document.createElement('input');
-          t.type = 'checkbox';
-          t.checked = on;
-          setSwitch(b, on);
-          void app.toggleTilt(t).then(() => setSwitch(b, t.checked));
-          break;
-        }
         case 'auto':
           s.autoAccelerate = on;
-          app.input.autoAccelerate = on;
+          store.saveSettings();
+          // The touch layout too: auto-accelerate hides the gas bar.
+          app.applyControls();
+          setSwitch(b, on);
+          syncTraction();
+          break;
+        case 'line':
+          s.racingLine = on;
           store.saveSettings();
           setSwitch(b, on);
           break;
@@ -244,6 +339,8 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       }
     },
   });
+
+  syncTraction();
 
   const name = $<HTMLInputElement>('#pf-name', el);
   if (name) {
@@ -269,6 +366,17 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
   const primary = el.querySelector<HTMLElement>('[data-act="done"]');
   if (mode === 'setup' && !isTouchDevice() && name) name.focus({ preventScroll: true });
   else if (mode === 'setup' || el.contains(document.activeElement)) primary?.focus({ preventScroll: true });
+
+  // The tilt gauge follows the device while the Controls tab shows the tilt row.
+  const gauge = el.querySelector<HTMLElement>('.pf-gauge > span');
+  if (gauge) {
+    const tick = () => {
+      if (!el.isConnected) return;
+      if (gauge.offsetParent !== null) gauge.style.setProperty('--x', app.input.tiltSteer().toFixed(3));
+      requestAnimationFrame(tick);
+    };
+    tick();
+  }
 
   app.setGarageView(true);
   return el;

@@ -1,5 +1,6 @@
 // Regenerates src/track/authorTimes.json from the autopilot (run from the project root; uses the local esbuild):
 //   npx esbuild scripts/author-times.ts --bundle --platform=node --format=esm --outfile=<tmp>/author-times.mjs && node <tmp>/author-times.mjs
+// After a physics change, regenerate the campaign racing lines too (scripts/racing-lines.ts).
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PHYSICS_VERSION } from '../src/core/constants';

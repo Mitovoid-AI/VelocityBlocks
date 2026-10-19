@@ -32,7 +32,7 @@ export const GRAVITY = 12;
 export const MAX_SPEED = 1000 / 3.6;
 
 /** Bump this whenever physics tuning changes so cached ghosts and author times are invalidated. */
-export const PHYSICS_VERSION = 5;
+export const PHYSICS_VERSION = 6;
 
 /** Grid headings: 0 = north (-z), 1 = east (+x), 2 = south (+z), 3 = west (-x). Turning right adds 1. */
 export type Dir = 0 | 1 | 2 | 3;

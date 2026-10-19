@@ -3,7 +3,7 @@
 
 import { GRAVITY } from '../core/constants';
 import { clamp, vdot } from '../core/vec';
-import { forwardOf, speedOf, type Controls } from '../physics/vehicle';
+import { DEFAULT_ASSISTS, forwardOf, maxSteerAngle, speedOf, type Assists, type Controls } from '../physics/vehicle';
 import type { Track } from '../track/track';
 import { nearestPoint, traceRoute, type Route } from '../track/route';
 import { RaceSession } from './race';
@@ -21,10 +21,11 @@ export class Autopilot {
     const pts = this.route.points;
     const v = new Float64Array(pts.length);
     for (let n = 0; n < pts.length; n++) {
-      // Corner speed with some line-cutting allowance on tight curves. Low-level roads have no
-      // barriers to lean on, so the allowance stays small enough to hold the road unaided.
+      // Corner speed with some line-cutting allowance. Low-level roads have no barriers to lean on, so
+      // the allowance stays small enough to hold the road unaided. Tight curves get less: the
+      // slip-angle tyres (physics v6) push wide when a hairpin or a flick leaves no line to cut.
       const k = pts[n].curv;
-      v[n] = k > 0 ? Math.sqrt(LAT_ACCEL / k) * (k > 0.05 ? 1.3 : 1.15) : 200;
+      v[n] = k > 0 ? Math.sqrt(LAT_ACCEL / k) * (k > 0.05 ? 1.1 : 1.15) : 200;
     }
     // Crests: keep the wheels on the road where the deck curves away.
     for (let n = 1; n < pts.length - 1; n++) {
@@ -80,7 +81,7 @@ export class Autopilot {
     const dist = Math.hypot(dx, dz) || 1;
     const curvature = (2 * Math.sin(alpha)) / dist;
     const delta = Math.atan(2.8 * curvature);
-    const maxSteer = 0.52 / (1 + Math.abs(vdot(car.vel, fwd)) / 22);
+    const maxSteer = maxSteerAngle(vdot(car.vel, fwd));
     const steer = clamp(delta / maxSteer, -1, 1);
     this.lastSteer = steer;
 
@@ -107,9 +108,17 @@ export interface BotResult {
   ticks: number;
 }
 
+/** Optional run settings; author times, attract mode and editor validation use the defaults. */
+export interface BotOptions {
+  /** Driver aids (default: normal traction control). */
+  assists?: Readonly<Assists>;
+  /** Reshapes the autopilot's controls, e.g. into a phone player's on/off buttons. */
+  filter?: (ctl: Controls) => Controls;
+}
+
 /** Drive a track with the autopilot (headless). */
-export function runBot(track: Track, maxSeconds = 240): BotResult {
-  const race = new RaceSession(track);
+export function runBot(track: Track, maxSeconds = 240, opts: BotOptions = {}): BotResult {
+  const race = new RaceSession(track, opts.assists ?? DEFAULT_ASSISTS);
   const bot = new Autopilot(track);
   const maxTicks = maxSeconds * 100;
   let stuck = 0;
@@ -117,7 +126,8 @@ export function runBot(track: Track, maxSeconds = 240): BotResult {
   let lastCheck = { x: race.car.pos.x, z: race.car.pos.z };
   for (let n = 0; n < maxTicks; n++) {
     if (race.phase === 'finished') break;
-    const ctl = race.phase === 'racing' ? bot.controls(race) : { steer: 0, gas: 0, brake: 0 };
+    let ctl: Controls = { steer: 0, gas: 0, brake: 0 };
+    if (race.phase === 'racing') ctl = opts.filter ? opts.filter(bot.controls(race)) : bot.controls(race);
     for (const e of race.step(ctl)) if (e.type === 'respawn' && e.auto) autoRespawns++;
     if (race.phase === 'racing' && n % 100 === 0) {
       const moved = Math.hypot(race.car.pos.x - lastCheck.x, race.car.pos.z - lastCheck.z);

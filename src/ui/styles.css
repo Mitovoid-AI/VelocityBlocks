@@ -15,6 +15,27 @@
   --safe-r: env(safe-area-inset-right, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
+  /* Android's system gesture strips (back swipe, home bar, shade pull), set by App from the
+     Android app's report (src/input/edgeGuard.ts); 0 in browsers. */
+  --gest-l: 0px;
+  --gest-r: 0px;
+  --gest-t: 0px;
+  --gest-b: 0px;
+  /* Where touch controls may start from each edge: clear of the safe area and the gesture
+     strips. Every edge-anchored touch control is placed with these. The bottom keeps 36px even
+     without a report: a swipe up from there would reveal the system bars, then go home. */
+  --ctl-l: max(calc(18px + var(--safe-l)), calc(var(--gest-l) + 8px));
+  --ctl-r: max(calc(18px + var(--safe-r)), calc(var(--gest-r) + 8px));
+  --ctl-b: max(calc(36px + var(--safe-b)), calc(var(--gest-b) + 8px));
+  --ctl-t: max(calc(10px + var(--safe-t)), var(--gest-t));
+  /* Touch control sizes (see "Touch controls"). The bars' tops stay below the speed readout
+     (body.touch .hud-br ends at most ~153px down), and nothing reaches the bottom-centre timer
+     at 640x360, 800x360 or 1067x600. */
+  --t-pad: clamp(72px, 13vw, 104px);
+  --t-bar-w: clamp(56px, 9vw, 76px);
+  --t-bar-gap: 20px;
+  --t-bar-h: clamp(100px, min(44vh, calc(100vh - var(--ctl-b) - 156px)), 190px);
+  --t-wheel: clamp(120px, min(24vw, calc(100vh - var(--ctl-b) - 120px)), 184px);
 }
 
 * {
@@ -89,6 +110,15 @@ body {
 .hud-pb {
   font-size: 13px;
   color: var(--muted);
+}
+/* The small HUD lines sit over the bright sky: lighter text with a tight dark edge keeps them readable. */
+.hud-target,
+.hud-pb,
+.hud-unit {
+  color: #dfe7f7;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.85),
+    0 0 8px rgba(0, 0, 0, 0.6);
 }
 .hud-count {
   position: absolute;
@@ -249,47 +279,223 @@ body.touch .hud-br {
   inset: 0;
   pointer-events: none;
 }
-#touch .t-btn,
+#touch .t-ctl,
 #touch .t-small {
   pointer-events: auto;
   touch-action: none;
 }
-.t-left,
-.t-right {
+/* Layout (TouchControls sets the classes on #touch): steer-buttons / steer-wheel / steer-tilt,
+   pedals-bars / pedals-buttons, auto-gas. Steering sits bottom left, the pedals bottom right
+   (gas outermost); with tilt the brake moves to the left thumb, and auto-accelerate hides the
+   gas, the brake taking its place. Everything is edge-anchored, so it carries data-edge-guard
+   and uses the --ctl-* insets (see :root). Plain translucent fills, no backdrop-filter: a blur
+   over the WebGL canvas is redone every frame. */
+.t-pads,
+.t-wheel,
+.t-pedal {
   position: absolute;
-  bottom: calc(18px + var(--safe-b));
+  bottom: var(--ctl-b);
+}
+.t-pads {
+  left: var(--ctl-l);
   display: flex;
   gap: 14px;
 }
-.t-left {
-  left: calc(18px + var(--safe-l));
-}
-.t-right {
-  right: calc(18px + var(--safe-r));
-}
 .t-btn {
-  width: clamp(72px, 13vw, 104px);
-  height: clamp(72px, 13vw, 104px);
+  width: var(--t-pad);
+  height: var(--t-pad);
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.35);
   background: rgba(10, 16, 34, 0.45);
   color: #fff;
   font-size: 28px;
-  backdrop-filter: blur(4px);
 }
 .t-btn.active {
   background: rgba(255, 106, 61, 0.55);
   border-color: #fff;
 }
+#touch:not(.steer-buttons) .t-pads,
+#touch:not(.steer-wheel) .t-wheel {
+  display: none;
+}
+
+/* Wheel: turned by one finger (TouchModel), centred again by the transition when let go. */
+.t-wheel {
+  left: var(--ctl-l);
+  width: var(--t-wheel);
+  height: var(--t-wheel);
+  border-radius: 50%;
+}
+.t-wheel-rim {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 12px solid rgba(255, 255, 255, 0.4);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.35) 0 13%, rgba(10, 16, 34, 0.35) 14%);
+  transition: transform 0.15s ease-out;
+}
+/* The spoke, and the accent mark that shows straight ahead. */
+.t-wheel-rim::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 10px;
+  margin-top: -5px;
+  background: rgba(255, 255, 255, 0.4);
+}
+.t-wheel-rim::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -12px;
+  width: 10px;
+  height: 12px;
+  margin-left: -5px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+#touch.wheel-held .t-wheel-rim {
+  transition: none;
+  border-color: rgba(255, 255, 255, 0.75);
+}
+
+/* Pedals. As bars: the fill shows the amount (--v, set by TouchControls), and above the dashed
+   line it is full (--full = GAS_FULL_AT / BRAKE_FULL_AT in touchModel.ts). */
+.t-pedal {
+  width: var(--t-bar-w);
+  height: var(--t-bar-h);
+  color: #fff;
+}
+/* A thumb landing in the gap between the bars still counts (half the gap each). */
+.t-pedal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--t-bar-gap) / -2);
+  right: calc(var(--t-bar-gap) / -2);
+}
+.t-track {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(10, 16, 34, 0.45);
+}
+.t-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: bottom;
+  transform: scaleY(var(--v, 0));
+}
+.t-track::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: var(--full);
+  border-top: 2px dashed rgba(255, 255, 255, 0.45);
+}
 .t-gas {
+  --full: 30%;
+  right: var(--ctl-r);
+}
+.t-gas .t-track {
   border-color: rgba(63, 224, 255, 0.7);
 }
+.t-gas .t-fill {
+  background: rgba(63, 224, 255, 0.45);
+}
 .t-brake {
+  --full: 50%;
+  right: calc(var(--ctl-r) + var(--t-bar-w) + var(--t-bar-gap));
+}
+.t-brake .t-track {
   border-color: rgba(255, 77, 94, 0.7);
+}
+.t-brake .t-fill {
+  background: rgba(255, 77, 94, 0.45);
+}
+.t-pedal.active .t-track {
+  border-color: #fff;
+}
+.t-pedal-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+}
+.t-pedal-icon {
+  display: none;
+}
+/* As round on/off buttons, the classic look. */
+#touch.pedals-buttons .t-pedal {
+  width: var(--t-pad);
+  height: var(--t-pad);
+}
+#touch.pedals-buttons .t-pedal::before {
+  left: -7px;
+  right: -7px;
+}
+#touch.pedals-buttons .t-track {
+  border-radius: 50%;
+}
+#touch.pedals-buttons .t-fill {
+  background: rgba(255, 106, 61, 0.55);
+}
+#touch.pedals-buttons .t-track::after,
+#touch.pedals-buttons .t-pedal-label {
+  display: none;
+}
+#touch.pedals-buttons .t-pedal-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  pointer-events: none;
+}
+#touch.pedals-buttons .t-brake {
+  right: calc(var(--ctl-r) + var(--t-pad) + 14px);
+}
+/* Keep this order: these override the placements above at equal specificity. */
+#touch.auto-gas .t-gas {
+  display: none;
+}
+#touch.auto-gas .t-brake {
+  right: var(--ctl-r);
+}
+#touch.steer-tilt:not(.auto-gas) .t-brake {
+  right: auto;
+  left: var(--ctl-l);
+}
+/* Portrait browser windows: the timer moves above the controls. */
+@media (max-aspect-ratio: 1/1) {
+  body.touch .hud-bottom {
+    bottom: calc(var(--ctl-b) + var(--t-bar-h) + 8px);
+  }
+}
+/* While racing on a touchscreen a toast sits under the pills, clear of the controls, the timer
+   and the speed readout; two lines of 14px also end above the countdown digits (the one-time
+   controls tip shows during the 3-2-1). */
+#touch:not(.hidden) ~ .toast {
+  top: calc(var(--ctl-t) + 52px);
+  bottom: auto;
+  max-width: min(90vw, 340px);
+  font-size: 14px;
 }
 .t-top {
   position: absolute;
-  top: calc(10px + var(--safe-t));
+  top: var(--ctl-t);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -305,6 +511,14 @@ body.touch .hud-br {
   font-weight: 700;
   min-height: 40px;
 }
+/* Pause acts when the finger lifts on it (App.bindPills), and stands apart from Restart and Cam. */
+.t-small[data-a='pause'] {
+  margin-inline: 10px;
+}
+.t-small.pressing {
+  background: rgba(255, 106, 61, 0.55);
+  border-color: #fff;
+}
 /* Landscape phones up to about 860px wide: centred pills would cover the medal times (more
    so beside a display cutout), and lower down the checkpoint split, so they sit just left
    of the CP / PB block instead. */
@@ -316,14 +530,17 @@ body.touch .hud-br {
   }
 }
 /* 16:9 phones (about 640px wide): tighter pills, closer to CP / PB, so all four still clear
-   the medal times. */
+   the medal times (the narrower padding pays for the space around Pause). */
 @media (max-width: 700px) {
   .t-top {
     right: calc(120px + var(--safe-r));
     gap: 6px;
   }
   .t-small {
-    padding: 8px 11px;
+    padding: 8px 10px;
+  }
+  .t-small[data-a='pause'] {
+    margin-inline: 5px;
   }
 }
 
@@ -354,6 +571,7 @@ body.touch .hud-br {
     opacity: 1;
   }
 }
+/* The boot screen (#boot) is styled inline in index.html, so it shows before this sheet loads. */
 .logo {
   font-weight: 900;
   font-style: italic;
@@ -570,6 +788,18 @@ body.touch .hud-br {
 .result .delta {
   font-weight: 800;
   font-size: 18px;
+}
+/* Pause menu: what paused the race, and a diagnostics line for bug-report screenshots. */
+.pause-why {
+  margin: -8px 0 12px;
+  font-size: 13px;
+}
+.pause-diag {
+  margin: 10px auto 0;
+  max-width: 420px;
+  font-size: 11px;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
 }
 .ahead {
   color: var(--good);
@@ -849,6 +1079,11 @@ kbd {
   .result .menu-list {
     grid-template-columns: 1fr;
   }
+  /* Pause menu: Resume across the top, then two buttons a row, so the Steering row fits 360px. */
+  .result .menu-list.pause-list {
+    grid-template-columns: 1fr 1fr;
+    min-width: 0;
+  }
   .header {
     margin-bottom: 8px;
   }
@@ -882,6 +1117,12 @@ kbd {
   }
   .result .row {
     margin-top: 8px !important;
+  }
+  .pause-why {
+    margin: -10px 0 8px;
+  }
+  .pause-diag {
+    margin-top: 6px;
   }
   .hud-track {
     font-size: 15px;

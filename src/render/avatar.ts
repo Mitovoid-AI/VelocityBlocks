@@ -54,7 +54,7 @@ export class AvatarBadge {
     this.texture.name = 'avatar';
     this.baseOpacity = spec.dim ? GHOST_AVATAR_OPACITY : 1;
     // depthTest so walls hide it with its car; no depthWrite so it never cuts holes in smoke
-    // or the ghost; toneMapped off so ACES doesn't wash out skin tones.
+    // or the ghost; toneMapped off so tone mapping doesn't wash out skin tones.
     this.material = new THREE.SpriteMaterial({
       map: this.texture,
       transparent: true,

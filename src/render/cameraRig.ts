@@ -8,6 +8,24 @@ import type { Track } from '../track/track';
 export type CamMode = 'chase' | 'far' | 'hood';
 export const CAM_MODES: CamMode[] = ['chase', 'far', 'hood'];
 
+/**
+ * Share of the requested vertical FOV kept on screens wider than 16:9. At 0 a 20:9 phone gets
+ * exactly the 16:9 horizontal FOV (no fisheye edges, but less speed kick); at 1 nothing changes.
+ */
+export const FOV_KEEP = 0.3;
+
+/**
+ * Vertical FOV for a screen of the given aspect: unchanged up to 16:9; wider screens narrow it
+ * towards the one that shows a 16:9 screen's horizontal FOV, blended by `keep`.
+ */
+export function fitFov(v: number, aspect: number, keep = FOV_KEEP): number {
+  const ref = 16 / 9;
+  if (!(aspect > ref)) return v;
+  const h = Math.atan(Math.tan((v * Math.PI) / 360) * ref);
+  const fitted = (Math.atan(Math.tan(h) / aspect) * 360) / Math.PI;
+  return fitted + (v - fitted) * keep;
+}
+
 const tmp = new THREE.Vector3();
 const fwd = new THREE.Vector3();
 const up = new THREE.Vector3();
@@ -146,8 +164,9 @@ export class CameraRig {
   }
 
   private setFov(f: number): void {
-    if (Math.abs(this.cam.fov - f) > 0.05) {
-      this.cam.fov += (f - this.cam.fov) * 0.15;
+    const t = fitFov(f, this.cam.aspect);
+    if (Math.abs(this.cam.fov - t) > 0.05) {
+      this.cam.fov += (t - this.cam.fov) * 0.15;
       this.cam.updateProjectionMatrix();
     }
   }

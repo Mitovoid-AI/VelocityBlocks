@@ -7,10 +7,14 @@ import { DT } from '../core/constants';
 import { Autopilot } from '../game/bot';
 import { campaignAuthorTime, medalFor, medalTimes, MEDAL_COLORS } from '../game/medals';
 import { formatTime, RaceSession } from '../game/race';
-import { layoutHash, Store, type SavedTrack } from '../game/storage';
+import { layoutHash, Store, STEER_MODES, type SavedTrack, type SteerMode } from '../game/storage';
 import { campaignLocks } from '../game/unlocks';
-import { Input, isTouchDevice, type Action } from '../input/input';
-import { keepAwake } from '../platform/native';
+import { edgeExclusionRects, gestureInsetVars, type GestureInsets } from '../input/edgeGuard';
+import { Input, isTouchDevice, type Action, type ActionSource } from '../input/input';
+import { TouchControls } from '../input/touchControls';
+import { STEER_LABEL } from '../input/touchModel';
+import { TouchWatch } from '../input/touchWatch';
+import { deviceInfo, keepAwake, setGestureExclusion, watchGestureInsets, type DeviceInfo } from '../platform/native';
 import { CameraRig } from '../render/cameraRig';
 import { CarView, type CarViewOptions, type PoseSnapshot } from '../render/carView';
 import { World } from '../render/world';
@@ -21,6 +25,7 @@ import { traceRoute } from '../track/route';
 import { $, downloadText, esc, pickTextFile, showScreen, toast } from '../ui/dom';
 import { Hud } from '../ui/hud';
 import { EditorMode } from './editorMode';
+import { isLongFrame, liftInside, type FocusDetail } from './pauseGuard';
 import { homeCardHtml, showProfileScreen, type ProfileMode } from './profileScreen';
 import { RaceMode, type RaceEntry } from './raceMode';
 import { ReplayMode } from './replayMode';
@@ -34,11 +39,14 @@ import { ReplayMode } from './replayMode';
 export interface Mode {
   update(dt: number): void;
   exit(): void;
-  onAction?(a: Action): void;
+  onAction?(a: Action, src?: ActionSource): void;
 }
 
 /** What profileScreen reports through App.profileChanged. */
 export type ProfileChange = 'color' | 'body' | 'photo' | 'name' | 'badge';
+
+/** The one-time toast on the first race on a touchscreen after the controls update. */
+export const CONTROLS_TIP = 'New: steering wheel, tilt and pedal bars - change them in the pause menu';
 
 export class App {
   readonly world: World;
@@ -47,51 +55,81 @@ export class App {
   readonly audio = new GameAudio();
   readonly store = new Store();
   readonly hud = new Hud();
+  /** Touches Android takes away mid-race (back swipes): RaceMode.back reads them. */
+  readonly touches = new TouchWatch(() => this.mode instanceof RaceMode && this.mode.isRacing);
+  /** The phone and its nav mode (Android app only), for the pause screen's diagnostics line. */
+  device: DeviceInfo | null = null;
+  /** System gesture strips the Android app reported; the touch controls keep out of them. */
+  gestureInsets: GestureInsets | null = null;
+  /** Frames over budget while racing, counted for the pause screen's diagnostics line. */
+  longFrames = 0;
   private mode: Mode | null = null;
   private last = 0;
   private editor: EditorMode | null = null;
   /** An ad is on screen: the loop stops updating and rendering. */
   private adPlaying = false;
+  /** The on-screen steering and pedals (the pills are bound in bindPills). */
+  private readonly touchCtl: TouchControls;
 
   constructor(readonly ads: Ads = new Ads()) {
     const canvas = $<HTMLCanvasElement>('#view');
     this.world = new World(canvas);
     this.rig = new CameraRig(this.world.camera);
     this.world.setQuality(this.store.settings.quality);
+    // Before applySettings, which lays the controls out. A race toast sits clear of the 3-2-1.
+    this.touchCtl = new TouchControls($('#touch'), this.input, (msg) => toast(msg, 3000), () => this.syncEdgeGuard());
     this.applySettings();
     if (isTouchDevice()) document.body.classList.add('touch');
 
-    window.addEventListener('resize', () => this.world.resize());
-    window.addEventListener('orientationchange', () => setTimeout(() => this.world.resize(), 200));
-    const autoPause = () => {
-      if (this.mode instanceof RaceMode) this.mode.setPaused(true);
+    window.addEventListener('resize', () => {
+      this.world.resize();
+      this.syncEdgeGuard();
+    });
+    // A 180-degree flip keeps the window size (no resize) but can move the safe area and the
+    // gesture strips to the other side.
+    window.addEventListener('orientationchange', () =>
+      setTimeout(() => {
+        this.world.resize();
+        this.syncEdgeGuard();
+      }, 200),
+    );
+    const autoPause = (reason: 'focus' | 'hidden', d?: FocusDetail) => {
+      if (this.mode instanceof RaceMode) this.mode.setPaused(true, reason, d);
     };
     document.addEventListener('visibilitychange', () => {
+      // The first frame back would otherwise count the whole time away as one long frame.
+      this.last = 0;
       if (document.hidden) {
-        autoPause();
+        autoPause('hidden');
         this.audio.suspend();
       } else {
         this.audio.resume();
       }
     });
-    // Sent by MainActivity when the window loses focus without the page being hidden:
-    // notification shade, assistant overlay, a dialog from another app.
-    window.addEventListener('vb-focuslost', autoPause);
+    // Sent by MainActivity when the window has lost focus for 500 ms without the page being
+    // hidden: notification shade, assistant overlay, a dialog or another app over the game.
+    window.addEventListener('vb-focuslost', (e) => autoPause('focus', (e as CustomEvent<FocusDetail | undefined>).detail));
     (window as unknown as { vbBack: () => boolean }).vbBack = () => this.back();
     // Audio needs a user gesture to start (mobile browsers, WebViews).
     const unlock = () => this.audio.unlock();
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
+    void deviceInfo().then((d) => (this.device = d));
+    watchGestureInsets((g) => this.applyGestureInsets(g));
 
-    this.input.onAction((a) => this.mode?.onAction?.(a));
-    this.bindTouch();
+    this.input.onAction((a, src) => this.mode?.onAction?.(a, src));
+    this.bindPills();
     this.bindAds();
 
     requestAnimationFrame((t) => this.loop(t));
   }
 
   private loop(t: number): void {
-    const dt = this.last ? Math.min(0.1, (t - this.last) / 1000) : 1 / 60;
+    const gap = this.last ? t - this.last : 0;
+    // Hitches are counted so the pause screen can tell a stutter from a real pause. Not during the
+    // countdown: the track load and shader warm-up land there and are not stutters.
+    if (isLongFrame(gap) && !this.adPlaying && this.mode instanceof RaceMode && this.mode.isDriving) this.longFrames++;
+    const dt = this.last ? Math.min(0.1, gap / 1000) : 1 / 60;
     this.last = t;
     // Nothing moves or renders under an ad; dt is capped, so the game picks up smoothly after.
     if (!this.adPlaying) {
@@ -106,17 +144,25 @@ export class App {
   }
 
   /**
-   * Android Back (from MainActivity): pause or resume a race, otherwise press the screen's
-   * own way out. Returns false on the main menu so the app goes to the background.
+   * Android Back (from MainActivity): pause or resume a race (or ignore a back swipe made over the
+   * controls, see RaceMode.back), otherwise press the screen's own way out. Returns false on the
+   * main menu so the app goes to the background.
    */
   back(): boolean {
-    if (this.mode instanceof RaceMode && this.mode.back()) return true;
-    const exit = document.querySelector<HTMLElement>(
-      '#screens [data-act="back"], #screens [data-act="exit"], #screens [data-act="menu"]',
-    );
-    if (!exit) return false;
-    exit.click();
-    return true;
+    try {
+      if (this.mode instanceof RaceMode && this.mode.back(this.touches.recent(), performance.now())) return true;
+      const exit = document.querySelector<HTMLElement>(
+        '#screens [data-act="back"], #screens [data-act="exit"], #screens [data-act="menu"]',
+      );
+      if (!exit) return false;
+      exit.click();
+      return true;
+    } catch (e) {
+      // MainActivity sends the app to the background unless this returns true: a bug here must
+      // not look like the race pausing by itself.
+      console.error('Back failed', e);
+      return this.mode instanceof RaceMode;
+    }
   }
 
   /**
@@ -168,90 +214,121 @@ export class App {
     if (this.mode instanceof AttractMode) this.mode.setShowcase(on);
   }
 
-  /** Tilt steering switch (profile Controls tab). Unchecks `t` and says why when sensors are denied. */
-  async toggleTilt(t: HTMLInputElement): Promise<void> {
+  /**
+   * Choose the touch steering (pause menu, Settings, profile Controls tab) and save it. Tilt is
+   * kept only if the motion sensor answers: otherwise this says why and returns false, and the
+   * steering stays as it was. Call it straight from the tap: iOS asks for motion permission then.
+   */
+  async setSteerMode(m: SteerMode): Promise<boolean> {
     const s = this.store.settings;
-    // enableTilt is called before anything is awaited, so iOS still counts the tap as the
-    // user gesture its motion permission prompt needs.
-    const ok = await this.input.enableTilt(t.checked);
-    if (t.checked && !ok) {
-      t.checked = false;
-      toast('Motion sensors are not available or permission was denied.');
+    if (m === 'tilt' && !(await this.input.requestTilt())) {
+      toast('Tilt steering needs a motion sensor: none answered, or permission was denied.', 3200);
+      this.applyControls();
+      return false;
     }
-    s.tilt = t.checked && ok;
+    s.steerMode = m;
     this.store.saveSettings();
+    this.applyControls();
+    return true;
   }
 
   applySettings(): void {
     const s = this.store.settings;
     this.audio.setVolume(s.volume);
-    this.input.autoAccelerate = s.autoAccelerate;
-    this.input.tiltEnabled = s.tilt;
+    this.applyControls();
     this.rig.mode = s.camera;
   }
 
-  showTouch(v: boolean): void {
-    $('#touch').classList.toggle('hidden', !(v && isTouchDevice()));
-    if (!v) this.releasePads();
+  /**
+   * The driving settings to Input and the touch controls. Unlike applySettings it leaves the
+   * camera alone, so the profile and menu screens can call it with the menu car on screen.
+   */
+  applyControls(): void {
+    const s = this.store.settings;
+    const i = this.input;
+    i.autoAccelerate = s.autoAccelerate;
+    i.tiltSensitivity = s.tiltSensitivity;
+    i.tiltCenter = s.tiltCenter;
+    // No permission prompt here (not from a tap): on iOS tilt then works once setSteerMode asked.
+    i.setTilt(s.steerMode === 'tilt');
+    this.touchCtl.setLayout({ steer: s.steerMode, pedals: s.pedals, autoGas: s.autoAccelerate });
+    this.syncEdgeGuard();
   }
 
-  private releasePads: () => void = () => this.input.clearTouch();
+  /** Once per install, on the first race on a touchscreen: where the steering and pedal options are. */
+  showControlsTip(): void {
+    const s = this.store.settings;
+    if (s.controlsTipShown || !isTouchDevice()) return;
+    s.controlsTipShown = true;
+    this.store.saveSettings();
+    toast(CONTROLS_TIP, 5000);
+  }
 
-  private bindTouch(): void {
+  showTouch(v: boolean): void {
+    this.touchCtl.show(v && isTouchDevice());
+    this.syncEdgeGuard();
+  }
+
+  /**
+   * Android back swipes are turned off over the shown [data-edge-guard] controls and back on
+   * everywhere when they are hidden (menus, pause, results). Call it after the controls move.
+   */
+  syncEdgeGuard(): void {
+    // The controls may have moved (rotation, gesture strips): their hit boxes too.
+    this.touchCtl.measure();
     const root = $('#touch');
-    type Pad = 'left' | 'right' | 'gas' | 'brake';
-    const pads = [...root.querySelectorAll<HTMLButtonElement>('.t-btn')];
-    // Which pad each finger is on. A finger can slide from one pad onto another (left to
-    // right, gas to brake); sliding off onto empty space keeps the last pad held.
-    const held = new Map<number, Pad>();
-    const sync = () => {
-      const on = new Set(held.values());
-      for (const b of pads) {
-        const k = b.dataset.t as Pad;
-        this.input.setTouch(k, on.has(k));
-        b.classList.toggle('active', on.has(k));
-      }
-    };
-    this.releasePads = () => {
-      held.clear();
-      sync();
-    };
-    const padAt = (x: number, y: number): Pad | undefined =>
-      document.elementFromPoint(x, y)?.closest<HTMLElement>('#touch .t-btn')?.dataset.t as Pad | undefined;
-    for (const b of pads) {
-      b.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        held.set(e.pointerId, b.dataset.t as Pad);
-        sync();
-      });
-      // Cancelling touchstart stops Android's long-press gesture, which otherwise buzzes
-      // the phone (and may open a context menu) about half a second into every held pad.
-      b.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
-      b.addEventListener('contextmenu', (e) => e.preventDefault());
-    }
-    window.addEventListener('pointermove', (e) => {
-      // A touch that is not on a pad yet joins one it moves over: the gas thumb that stayed
-      // down through the pause menu takes hold again right after Resume.
-      if (!held.has(e.pointerId) && e.pointerType !== 'touch') return;
-      const k = padAt(e.clientX, e.clientY);
-      if (k && k !== held.get(e.pointerId)) {
-        held.set(e.pointerId, k);
-        sync();
-      }
-    });
-    const lift = (e: PointerEvent) => {
-      if (held.delete(e.pointerId)) sync();
-    };
-    window.addEventListener('pointerup', lift);
-    window.addEventListener('pointercancel', lift);
+    const boxes = root.classList.contains('hidden')
+      ? []
+      : [...root.querySelectorAll<HTMLElement>('[data-edge-guard]')].map((el) => el.getBoundingClientRect());
+    setGestureExclusion(innerWidth, innerHeight, edgeExclusionRects(boxes, innerWidth, innerHeight));
+  }
+
+  /** The Android app reported the system gesture strips: the touch controls (styles.css --ctl-*) move clear of them. */
+  private applyGestureInsets(g: GestureInsets): void {
+    this.gestureInsets = g;
+    const style = document.documentElement.style;
+    for (const [k, v] of Object.entries(gestureInsetVars(g))) style.setProperty(k, v);
+    this.syncEdgeGuard();
+  }
+
+  /** The race pills (CP, Restart, Pause, Cam). Steering and pedals are TouchControls. */
+  private bindPills(): void {
+    const root = $('#touch');
     // The pills act on touch-down: Android generates no click for a tap made while another
-    // finger is down, and during a race a thumb is almost always on gas or steering.
+    // finger is down, and during a race a thumb is almost always on gas or steering. Pause is
+    // the exception: it acts when the finger lifts on it, so a thumb that lands on it while
+    // reaching for Cam or Restart can slide off. pointerup is per finger, so a second finger
+    // works too, and the capture sends it to the pill wherever the finger lifts.
     root.querySelectorAll<HTMLButtonElement>('.t-small').forEach((b) => {
-      const act = () => this.mode?.onAction?.(b.dataset.a as Action);
+      const a = b.dataset.a as Action;
+      const act = () => this.mode?.onAction?.(a, 'touch');
+      const onLift = a === 'pause';
+      const pressing = new Set<number>();
+      const release = (id: number) => {
+        pressing.delete(id);
+        b.classList.toggle('pressing', pressing.size > 0);
+      };
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();
-        act();
+        if (!onLift) return act();
+        pressing.add(e.pointerId);
+        b.classList.add('pressing');
+        try {
+          b.setPointerCapture(e.pointerId);
+        } catch {
+          // The pointer is already gone; its pointerup won't come.
+        }
       });
+      if (onLift) {
+        b.addEventListener('pointerup', (e) => {
+          if (!pressing.has(e.pointerId)) return;
+          release(e.pointerId);
+          // A hidden pill (paused some other way meanwhile) has an empty box, so it does nothing.
+          if (liftInside(b.getBoundingClientRect(), e.clientX, e.clientY)) act();
+        });
+        b.addEventListener('pointercancel', (e) => release(e.pointerId));
+        b.addEventListener('lostpointercapture', (e) => release(e.pointerId));
+      }
       b.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
       b.addEventListener('contextmenu', (e) => e.preventDefault());
       // Clicks not made by a pointer (accessibility actions, element.click()) have detail 0.
@@ -276,6 +353,7 @@ export class App {
       playing: (on) => {
         this.adPlaying = on;
         this.audio.mute('ad', on);
+        if (!on) this.last = 0; // the ad's time is not a long frame
       },
     };
     // CrazyGames can mute every game from its own page; that wins over the volume setting.
@@ -547,16 +625,26 @@ export class App {
     this.mainMenu();
   }
 
-  /** Game settings. Name, car, camera, tilt and auto-accelerate live in the driver profile. */
+  /**
+   * Game settings. Name, car, camera, pedals, tilt and auto-accelerate live in the driver profile;
+   * touchscreens also get the steering choice here, where it is easy to find.
+   */
   settingsMenu(back: () => void): void {
     // Coming back from Edit driver profile: the menu car leaves the garage and laps again.
     this.setGarageView(false);
     const s = this.store.settings;
     const sel = (v: string, cur: string) => (v === cur ? 'selected' : '');
+    // Buttons, not a drop-down, so a second-finger tap (pointerup routing in showScreen) works.
+    const steer = isTouchDevice()
+      ? `<label id="s-steer-l">Steering</label><div class="seg" role="group" aria-labelledby="s-steer-l">${STEER_MODES.map(
+          (m) => `<button class="btn small ${m === s.steerMode ? 'sel' : ''}" data-act="steer" data-v="${m}" aria-pressed="${m === s.steerMode}">${STEER_LABEL[m]}</button>`,
+        ).join('')}</div>`
+      : '';
     const el = showScreen(
       `<div class="header"><button class="btn small" data-act="back">&#8592; Back</button><h2>Settings</h2></div>
        <div class="panel"><div class="form">
          <label>Driver &amp; car</label><div><button class="btn small" data-act="profile">Edit driver profile</button></div>
+         ${steer}
          <label for="s-q">Graphics quality</label>
          <select id="s-q"><option value="low" ${sel('low', s.quality)}>Low (fastest)</option><option value="medium" ${sel('medium', s.quality)}>Medium</option><option value="high" ${sel('high', s.quality)}>High</option></select>
          <label for="s-vol">Volume</label><input id="s-vol" type="range" min="0" max="1" step="0.05" value="${s.volume}"/>
@@ -578,6 +666,18 @@ export class App {
             this.store.resetProgress();
             toast('Records cleared');
           }
+        },
+        steer: (b) => {
+          const m = STEER_MODES.find((x) => x === b.dataset.v);
+          if (!m) return;
+          const mark = (cur: SteerMode) =>
+            el.querySelectorAll<HTMLElement>('[data-act="steer"]').forEach((x) => {
+              x.classList.toggle('sel', x.dataset.v === cur);
+              x.setAttribute('aria-pressed', String(x.dataset.v === cur));
+            });
+          mark(m);
+          // Tilt may be refused (no sensor): show what was kept.
+          void this.setSteerMode(m).then(() => mark(s.steerMode));
         },
       },
     );
@@ -616,7 +716,9 @@ export class App {
            <div><kbd>Esc</kbd> <kbd>P</kbd></div><div>Pause</div>
          </div>
          <p>If the car is stuck on its roof or side for 3 seconds it goes back to the last checkpoint by itself (or restarts if none has been passed).</p>
-         <p class="muted">Gamepad: left stick to steer, RT to accelerate, LT/B to brake, Y to respawn, Back to restart. On phones and tablets use the on-screen buttons (Cam changes the camera; the ghost toggle is in the pause menu). Tap your driver card on the home screen to change your photo, name and car, the starting camera, tilt steering and auto-accelerate. In the track editor, drag to pan, pinch to zoom, and twist two fingers or hold the turn arrows to turn the view.</p>
+         <p>Downforce presses the car onto the road, so fast corners hold more grip than slow ones, and the steering lock eases off at speed. Brake in a straight line before the corner. Traction control trims the power when you ask for too much out of a slow corner; set it to Low in your driver profile (Controls) to let the rear wheels spin. Turn on the <b>racing line</b> in the pause menu: green is full throttle, yellow is lift, red is brake.</p>
+         <p class="muted">Gamepad: left stick to steer, RT to accelerate, LT/B to brake, Y to respawn, Back to restart.</p>
+         <p class="muted">Phones and tablets: steer with the arrow buttons, a steering wheel or by tilting the device; pick one in the pause menu (Steering), in Settings or in your driver profile. The gas and brake bars are analog: a light touch on the gas gives a third of the power, and above the dashed line it is full. Any touch on the brake is strong enough for the drift (tap it while steering at speed); higher up it brakes harder. Your driver profile (tap your card on the home screen) also has your photo, name and car, the starting camera, round on/off pedals, tilt sensitivity and auto-accelerate. Cam changes the camera; the ghost and racing line toggles are in the pause menu. During a race, Back swipes that start on the controls are ignored, so tap the pause button to pause. In the track editor, drag to pan, pinch to zoom, and twist two fingers or hold the turn arrows to turn the view.</p>
          <p class="muted">Green pads give a boost and red pads a turbo. Jumps need speed!</p>
        </div>`,
       'dim',

@@ -5,6 +5,8 @@ dist/
 .vite/
 coverage/
 *.tsbuildinfo
+# Claude Code worktrees and local launch configs
+.claude/
 
 # Local overrides and signing keys never go in the repo
 .env.local
