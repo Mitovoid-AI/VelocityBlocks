@@ -2,7 +2,9 @@
 // Both pages sit in a left-hand panel while the garage camera shows the car on the right.
 // Every change is saved at once and reported through app.profileChanged().
 
-import { CAR_BODIES, CAR_BODY_NOTE, isCarBody } from '../core/cars';
+import { CAR_BODIES, CAR_ICON_WHEELS, isCarBody, vehicleInfo, VEHICLE_INFO, type IconWheel } from '../core/cars';
+import { isModelId, modelsOf, vehicleModel } from '../core/vehicleModels';
+import { isVehicleClass, VEHICLE_LABEL, type VehicleClass } from '../core/vehicles';
 import { DEFAULT_NAME, PROFILE_NAME_MAX, sanitizeColor, sanitizeName, STEER_MODES, type PedalMode, type Profile } from '../game/storage';
 import { isTouchDevice } from '../input/input';
 import { STEER_LABEL } from '../input/touchModel';
@@ -11,6 +13,8 @@ import { $, esc, pickImageFile, showScreen, toast } from '../ui/dom';
 import { PHOTO_MAX_FILE_BYTES, squarePhoto } from '../ui/photo';
 import '../ui/profile.css';
 import type { App } from './app';
+import { showTiltScreen } from './tiltScreen';
+import { bindTiltControls, tiltSliderHtml, tiltValHtml } from './tiltUi';
 
 export const CAR_COLORS = ['#e8452c', '#ffb02e', '#2fbf5b', '#2f6fd6', '#9b5cff', '#f5f5f5', '#1b1e24', '#ff4fa3'];
 
@@ -19,7 +23,8 @@ export type ProfileMode = 'setup' | 'edit';
 type Tab = 'driver' | 'car' | 'controls';
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'driver', label: 'Driver' },
-  { id: 'car', label: 'Car' },
+  // The Car tab picks the vehicle (Car, Bike or Truck) too.
+  { id: 'car', label: 'Vehicle' },
   { id: 'controls', label: 'Controls' },
 ];
 const CAMERAS = [
@@ -37,10 +42,6 @@ const TRACTION = [
   { id: 'low', label: 'Low' },
 ] as const;
 
-/** Tilt sensitivity as the 1..9 shown in the Controls tab, and back. */
-export const sensStep = (sens: number): number => Math.round(Math.min(1, Math.max(0, sens)) * 8) + 1;
-export const stepSens = (step: number): number => (Math.min(9, Math.max(1, Math.round(step))) - 1) / 8;
-
 // Reopening the editor returns to the tab used last.
 let lastTab: Tab = 'driver';
 // A photo is being decoded and encoded; survives leaving the screen.
@@ -50,6 +51,23 @@ let busy = false;
 const nameValue = (p: Profile): string => (p.name === DEFAULT_NAME ? '' : p.name);
 
 const bodyInfo = (p: Profile) => CAR_BODIES.find((b) => b.id === p.carBody) ?? CAR_BODIES[0];
+
+/** The realistic model picked for a class, if any (a stale id reads as Classic). */
+const modelOf = (p: Profile, cls: VehicleClass) => {
+  const id = p.models?.[cls];
+  return isModelId(id) && vehicleModel(id).cls === cls ? vehicleModel(id) : null;
+};
+
+/** What the home card says under the name: the realistic model, the car's body style, or the Bike / Truck. */
+const vehicleName = (p: Profile): string => {
+  const m = isVehicleClass(p.vehicle) ? modelOf(p, p.vehicle) : null;
+  if (m) return m.name;
+  return p.vehicle && p.vehicle !== 'car' ? VEHICLE_LABEL[p.vehicle] ?? bodyInfo(p).name : bodyInfo(p).name;
+};
+
+/** A 64x24 side-view icon: the shape, then its wheels. */
+const iconSvg = (path: string, wheels: readonly IconWheel[]): string =>
+  `<svg viewBox="0 0 64 24" aria-hidden="true"><path d="${path}"/>${wheels.map(([cx, cy, r]) => `<circle cx="${cx}" cy="${cy}" r="${r}"/>`).join('')}</svg>`;
 
 /** Avatar <img>: the photo or the dummy, ringed in the car colour (sanitised, so safe in style). */
 function avatarImg(photo: string | null, color: string, cls: string): string {
@@ -64,7 +82,7 @@ export function homeCardHtml(app: App): string {
   return `<button class="home-profile" data-act="profile" aria-label="Driver profile: ${esc(p.name)}. Tap to edit.">
     <span class="hp-avatar">${avatarImg(photo, p.carColor, 'avatar')}<span class="hp-add ${photo ? 'hidden' : ''}" aria-hidden="true">+</span></span>
     <span class="hp-text"><span class="hp-name">${esc(p.name)}</span>
-      <span class="hp-car"><span class="color-dot" style="background:${p.carColor}"></span>${esc(bodyInfo(p).name)}</span></span>
+      <span class="hp-car"><span class="color-dot" style="background:${p.carColor}"></span>${esc(vehicleName(p))}</span></span>
     <span class="hp-edit" aria-hidden="true">&#9998;</span>
   </button>`;
 }
@@ -88,26 +106,64 @@ function identityHtml(app: App): string {
   </div>`;
 }
 
-function carHtml(p: Profile): string {
+/**
+ * The Vehicle tab: the class (Car, Bike, Truck), the colour (shared by all three), then the car's
+ * body styles (cars only). Re-rendered in place when the class changes (data-act handlers are
+ * delegated from the screen, so they keep working).
+ */
+export function carHtml(p: Profile): string {
+  const cur = isVehicleClass(p.vehicle) ? p.vehicle : 'car';
+  const vehicles = VEHICLE_INFO.map((v) => {
+    const on = v.id === cur;
+    return `<button class="body-opt veh-opt ${on ? 'sel' : ''}" data-act="vehicle" data-v="${v.id}" role="radio" aria-checked="${on}" title="${esc(v.blurb)}">${iconSvg(v.icon, v.wheels)}<span>${esc(v.name)}</span></button>`;
+  }).join('');
   const colors = CAR_COLORS.includes(p.carColor) ? CAR_COLORS : [p.carColor, ...CAR_COLORS];
   const swatches = colors
     .map((c) => `<button class="swatch ${c === p.carColor ? 'sel' : ''}" style="background:${c}" data-act="color" data-c="${c}" aria-label="Colour ${c}"></button>`)
     .join('');
-  const bodies = CAR_BODIES.map((b) => {
-    const on = b.id === p.carBody;
-    return `<button class="body-opt ${on ? 'sel' : ''}" data-act="body" data-b="${b.id}" role="radio" aria-checked="${on}" title="${esc(b.blurb)}"><svg viewBox="0 0 64 24" aria-hidden="true"><path d="${b.icon}"/><circle cx="16" cy="19" r="5"/><circle cx="46" cy="19" r="5"/></svg><span>${esc(b.name)}</span></button>`;
-  }).join('');
-  return `<div class="pf-label">Car colour</div>
+  const model = modelOf(p, cur);
+  // Classic (procedural) or Realistic (a downloaded model): two small toggles in the label row, so the
+  // pane keeps its height budget (profile.css).
+  const look = (['classic', 'realistic'] as const)
+    .map((v) => {
+      const on = (v === 'realistic') === !!model;
+      return `<button class="look-opt ${on ? 'sel' : ''}" data-act="look" data-v="${v}" aria-pressed="${on}">${v === 'classic' ? 'Classic' : 'Realistic'}</button>`;
+    })
+    .join('');
+  const options = model
+    ? modelsOf(cur).map((m) => {
+        const on = m.id === model.id;
+        return `<button class="body-opt ${on ? 'sel' : ''}" data-act="model" data-m="${m.id}" role="radio" aria-checked="${on}" title="${esc(m.blurb)}">${iconSvg(m.icon, m.wheels)}<span>${esc(m.name)}</span></button>`;
+      })
+    : cur === 'car'
+      ? CAR_BODIES.map((b) => {
+          const on = b.id === p.carBody;
+          return `<button class="body-opt ${on ? 'sel' : ''}" data-act="body" data-b="${b.id}" role="radio" aria-checked="${on}" title="${esc(b.blurb)}">${iconSvg(b.icon, CAR_ICON_WHEELS)}<span>${esc(b.name)}</span></button>`;
+        })
+      : [];
+  // A single realistic model needs no picker row.
+  const bodies = `<div class="pf-label pf-look-row"><span id="pf-body-l">${cur === 'car' ? 'Body style' : 'Look'}</span><span class="look-seg" role="group" aria-label="Look">${look}</span></div>
+    ${options.length > 1 ? `<div class="bodies" role="radiogroup" aria-labelledby="pf-body-l">${options.join('')}</div>` : ''}`;
+  // At 640x360 the car's note is cut to one line (its body-style row fills the height budget in profile.css);
+  // the bike's and the truck's have room to wrap, so a realistic model's credit and paint note stay whole.
+  const note = model
+    ? `${model.name} by ${model.credit.author}, ${model.credit.license}${model.tintable ? '' : '. Factory paint: the rider wears your colour'}.`
+    : cur === 'car'
+      ? 'Own records per vehicle. Bodies are looks only.'
+      : `${vehicleInfo(cur).blurb}. Own records and medals.`;
+  const oneLine = cur === 'car';
+  return `<div class="pf-label" id="pf-veh-l">Vehicle</div>
+    <div class="bodies vehicles" role="radiogroup" aria-labelledby="pf-veh-l">${vehicles}</div>
+    <div class="pf-label">Colour</div>
     <div class="swatches pf-swatches">${swatches}</div>
-    <div class="pf-label" id="pf-body-l">Body style</div>
-    <div class="bodies" role="radiogroup" aria-labelledby="pf-body-l">${bodies}</div>
-    <div class="body-note">${esc(CAR_BODY_NOTE)}</div>`;
+    ${bodies}
+    <div class="body-note${oneLine ? ' one-line' : ''}" title="${esc(note)}">${esc(note)}</div>`;
 }
 
 // Toggles are buttons, not checkboxes, so a second-finger tap (pointerup routing in
 // showScreen, which sends no click) works on them like on every other control.
-const switchHtml = (k: string, label: string, on: boolean): string =>
-  `<button class="pf-switch" data-act="switch" data-k="${k}" role="switch" aria-checked="${on}"><span class="pf-box" aria-hidden="true"></span><span>${label}</span></button>`;
+const switchHtml = (k: string, label: string, on: boolean, title = ''): string =>
+  `<button class="pf-switch" data-act="switch" data-k="${k}" role="switch" aria-checked="${on}"${title ? ` title="${esc(title)}"` : ''}><span class="pf-box" aria-hidden="true"></span><span>${label}</span></button>`;
 
 /** A row of choice buttons (seg); `act` is the data-act, the value goes in data-v. */
 const segHtml = (id: string, act: string, opts: readonly { id: string; label: string }[], cur: string): string =>
@@ -115,16 +171,15 @@ const segHtml = (id: string, act: string, opts: readonly { id: string; label: st
     .map((o) => `<button class="btn small ${o.id === cur ? 'sel' : ''}" data-act="${act}" data-v="${o.id}" aria-pressed="${o.id === cur}">${o.label}</button>`)
     .join('')}</div>`;
 
-// Steppers, not <input type=range>, so a second-finger tap works on them like on every other control.
+// One row at 640x360 (see the height budget in profile.css): the sensitivity slider (src/ui/slider.ts,
+// which a second finger can drag too) and "More...", the Tilt steering screen with the gauge,
+// Recentre and the other sliders.
 function tiltHtml(app: App): string {
   const s = app.store.settings;
   return `<div class="pf-glabel pf-tilt-row ${s.steerMode === 'tilt' ? '' : 'hidden'}" id="pf-tilt-l">Tilt</div>
-    <div class="pf-tilt pf-tilt-row ${s.steerMode === 'tilt' ? '' : 'hidden'}" role="group" aria-labelledby="pf-tilt-l">
-      <button class="btn small" data-act="sens" data-d="-1" aria-label="Less sensitive">&minus;</button>
-      <span class="pf-sens" aria-label="Sensitivity">${sensStep(s.tiltSensitivity)}</span>
-      <button class="btn small" data-act="sens" data-d="1" aria-label="More sensitive">+</button>
-      <button class="btn small" data-act="recentre">Recentre</button>
-      <span class="pf-gauge" aria-hidden="true"><span></span></span>
+    <div class="pf-tilt pf-tilt-row ${s.steerMode === 'tilt' ? '' : 'hidden'}">
+      ${tiltSliderHtml('sens', s, 'pf-tilt-l')}${tiltValHtml('sens', s, 'pf-sens')}
+      <button class="btn small" data-act="tilt-more" aria-label="More tilt steering settings">More&hellip;</button>
     </div>`;
 }
 
@@ -148,7 +203,8 @@ function controlsHtml(app: App): string {
     <div class="pf-switches">
       ${switchHtml('auto', 'Auto-accelerate', s.autoAccelerate)}
       ${switchHtml('line', 'Racing line', s.racingLine)}
-      ${switchHtml('badge', 'Photo above my car', app.store.profile.showBadge)}
+      ${switchHtml('badge', 'Photo on my car', app.store.profile.showBadge, 'Your photo above your car and your ghost')}
+      ${touch ? switchHtml('analog', 'Fast wheel/tilt', s.analogSteer, 'A quicker steering response for tilt and the wheel (buttons and keys are unchanged)') : ''}
     </div>`;
 }
 
@@ -208,6 +264,8 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       p.setupDone = true;
       store.saveProfile();
     }
+    // A slider drag cut short by Android Back has applied its value but not saved it yet.
+    if (mode === 'edit') store.saveSettings();
     back();
   };
   const selectIn = (group: string, b: HTMLElement, aria: 'aria-pressed' | 'aria-checked' | 'aria-selected') =>
@@ -216,6 +274,14 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       x.setAttribute(aria, String(x === b));
     });
   const setSwitch = (b: HTMLElement, on: boolean) => b.setAttribute('aria-checked', String(on));
+  // The Vehicle pane changes shape with the class and the look; a keyboard user stays on the control used.
+  const redrawCarPane = (focus: string) => {
+    const pane = el.querySelector<HTMLElement>('.pf-pane.pf-car');
+    if (!pane) return;
+    const focused = pane.contains(document.activeElement);
+    pane.innerHTML = carHtml(p);
+    if (focused) pane.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
+  };
   // Auto-accelerate races on Normal traction control (physics assistsFor), so the choice is shown as Normal and locked.
   const syncTraction = () => {
     const shown = s.autoAccelerate ? 'normal' : s.tractionControl;
@@ -257,8 +323,38 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       if (!isCarBody(v) || v === p.carBody) return;
       p.carBody = v;
       store.saveProfile();
-      selectIn('.body-opt', b, 'aria-checked');
+      selectIn('[data-act="body"]', b, 'aria-checked');
       app.profileChanged('body');
+    },
+    look: (b) => {
+      const cls = isVehicleClass(p.vehicle) ? p.vehicle : 'car';
+      const want = b.dataset.v === 'realistic';
+      if (want === !!modelOf(p, cls)) return;
+      const models = { ...p.models };
+      if (want) models[cls] = modelsOf(cls)[0]?.id;
+      else delete models[cls];
+      if (want && !models[cls]) return;
+      p.models = models;
+      store.saveProfile();
+      redrawCarPane(`[data-act="look"][data-v="${b.dataset.v}"]`);
+      app.profileChanged('model');
+    },
+    model: (b) => {
+      const id = b.dataset.m;
+      const cls = isVehicleClass(p.vehicle) ? p.vehicle : 'car';
+      if (!isModelId(id) || vehicleModel(id).cls !== cls || p.models[cls] === id) return;
+      p.models = { ...p.models, [cls]: id };
+      store.saveProfile();
+      redrawCarPane(`[data-act="model"][data-m="${id}"]`);
+      app.profileChanged('model');
+    },
+    vehicle: (b) => {
+      const v = b.dataset.v;
+      if (!isVehicleClass(v) || v === p.vehicle) return;
+      // Saves the profile and swaps the garage vehicle.
+      app.setVehicle(v);
+      // The body styles are the car's only, so the pane changes shape.
+      redrawCarPane(`[data-act="vehicle"][data-v="${v}"]`);
     },
     cam: (b) => {
       const v = CAMERAS.find((c) => c.id === b.dataset.v);
@@ -295,24 +391,11 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       store.saveSettings();
       syncTraction();
     },
-    sens: (b) => {
-      s.tiltSensitivity = stepSens(sensStep(s.tiltSensitivity) + Number(b.dataset.d));
+    // The Tilt steering screen; Back comes back to this tab (lastTab).
+    'tilt-more': () => {
+      commitName();
       store.saveSettings();
-      app.applyControls();
-      const n = el.querySelector('.pf-sens');
-      if (n) n.textContent = String(sensStep(s.tiltSensitivity));
-    },
-    recentre: () => {
-      const c = app.input.recentreTilt();
-      if (c === null) {
-        toast('No tilt reading yet. Hold the device the way you drive, then try again.', 3000);
-        return;
-      }
-      // Kept for every race: the automatic centre at GO stops.
-      s.tiltCenter = Math.round(c * 10) / 10;
-      s.tiltCenterSet = true;
-      store.saveSettings();
-      toast('Straight ahead set for every race');
+      showTiltScreen(app, () => app.profileScreen(mode, back));
     },
     switch: (b) => {
       const on = b.getAttribute('aria-checked') !== 'true';
@@ -335,6 +418,12 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
           store.saveProfile();
           setSwitch(b, on);
           app.profileChanged('badge');
+          break;
+        case 'analog':
+          // RaceMode reads it when a run starts or restarts.
+          s.analogSteer = on;
+          store.saveSettings();
+          setSwitch(b, on);
           break;
       }
     },
@@ -367,16 +456,8 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
   if (mode === 'setup' && !isTouchDevice() && name) name.focus({ preventScroll: true });
   else if (mode === 'setup' || el.contains(document.activeElement)) primary?.focus({ preventScroll: true });
 
-  // The tilt gauge follows the device while the Controls tab shows the tilt row.
-  const gauge = el.querySelector<HTMLElement>('.pf-gauge > span');
-  if (gauge) {
-    const tick = () => {
-      if (!el.isConnected) return;
-      if (gauge.offsetParent !== null) gauge.style.setProperty('--x', app.input.tiltSteer().toFixed(3));
-      requestAnimationFrame(tick);
-    };
-    tick();
-  }
+  // The sensitivity slider applies while dragged and saves when let go.
+  bindTiltControls(el, app);
 
   app.setGarageView(true);
   return el;

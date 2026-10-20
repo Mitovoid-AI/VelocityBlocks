@@ -48,4 +48,13 @@ describe('builder', () => {
     expect(barrierRange(t2.blocks[1])).toBeNull();
     expect(barrierRange(t2.blocks[3])).toEqual([0, 32]);
   });
+
+  it('puts barriers along every block with walls on all roads', () => {
+    const t = new Track(buildTrack('w', 'St S U S J G S R2 F'), { walls: true });
+    expect(t.walls).toBe(true);
+    expect(new Track(t.data).walls).toBe(false);
+    for (const b of t.blocks) expect(barrierRange(b, t.walls), b.def.type).toEqual([0, b.def.length]);
+    // The default (raised decks only) is unchanged.
+    expect(barrierRange(t.blocks[1])).toBeNull();
+  });
 });

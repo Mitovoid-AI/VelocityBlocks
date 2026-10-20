@@ -1,14 +1,19 @@
 // Handling bench: prints the feel numbers (launch, top speed, brakes, cornering limit, power oversteer,
-// brake-tap drift, grass) and the autopilot campaign laps. Run it from the project root:
-//   npx esbuild scripts/handling-bench.ts --bundle --platform=node --format=esm --outfile=<tmp>/bench.mjs && node <tmp>/bench.mjs [section]
-// Sections: all (default), accel, brake, skid, corner, power, drift, grass, bot, touch.
+// brake-tap drift, grass, steering response, nitro) and the autopilot campaign laps, for one vehicle class.
+// Run it from the project root:
+//   npx esbuild scripts/handling-bench.ts --bundle --platform=node --format=esm --outfile=<tmp>/bench.mjs && node <tmp>/bench.mjs [section] [car|bike|truck]
+// Sections: all (default), accel, brake, skid, corner, power, drift, grass, feel, table, bot, touch, nitro.
+// The autopilot ('bot') fires the nitro; 'touch' drives its laps on buttons without it, 'nitro' with it.
+// 'table' measures the skidpad every LAT_TABLE_STEP m/s and prints VehicleSpec.latTable for the class.
 // It reads the v6 car fields and assists loosely, so a copy also runs in an older checkout for comparison.
-import { createCar, forwardOf, speedOf, stepCar, type CarState, type Controls } from '../src/physics/vehicle';
+import { isVehicleClass, type VehicleClass } from '../src/core/vehicles';
+import { createCar, forwardOf, gripAccel, LAT_TABLE_STEP, maxLatAccel, speedOf, stepCar, upOf, vehicleSpec, type CarState, type Controls } from '../src/physics/vehicle';
 import { Autopilot } from '../src/game/bot';
 import { RaceSession } from '../src/game/race';
 import { campaign } from '../src/track/campaign';
 import { nearestPoint } from '../src/track/route';
 import { Track } from '../src/track/track';
+import { touchNitroStyle, touchStyle } from '../tests/classGates';
 
 type TcLevel = 'normal' | 'low';
 /** Assists as stepCar takes them; older physics ignores the extra argument. */
@@ -34,9 +39,14 @@ const step = (c: CarState, ctl: Controls, t: Track = flat, a: Assists = NORMAL) 
   (stepCar as (c: CarState, ctl: Controls, t: Track, a: Assists) => unknown)(c, ctl, t, a);
 const kmh = (c: CarState) => speedOf(c) * 3.6;
 
+const mode = process.argv[2] ?? 'all';
+const clsArg = process.argv[3] ?? 'car';
+const cls: VehicleClass = isVehicleClass(clsArg) ? clsArg : 'car';
+const S = vehicleSpec(cls);
+
 /** Car rolling straight along +z at v m/s, settled on its springs (downforce squats it at speed). */
 function rolling(v: number, t: Track = flat, a: Assists = NORMAL): CarState {
-  const c = createCar(t);
+  const c = createCar(t, cls);
   for (let n = 0; n < 200; n++) {
     step(c, NONE, t, a);
     c.vel = { x: 0, y: 0, z: v };
@@ -87,8 +97,8 @@ function latLimit(v: number) {
   return best;
 }
 
-const mode = process.argv[2] ?? 'all';
 const on = (s: string) => mode === 'all' || mode === s;
+console.log(`CLASS ${cls}`);
 
 if (on('accel')) {
   for (const a of [NORMAL, LOW]) {
@@ -243,6 +253,45 @@ if (on('drift')) {
   }
 }
 
+if (on('feel')) {
+  // Step steer at 100 km/h, speed held: time to 63% / 90% of the final yaw rate, overshoot, steady lateral g, roll.
+  for (const st of [0.3, 1]) {
+    const c = rolling(100 / 3.6);
+    const yaws: number[] = [];
+    let roll = 0;
+    for (let n = 0; n < 300; n++) {
+      step(c, { steer: st, gas: 0, brake: 0 });
+      const s = Math.hypot(c.vel.x, c.vel.z);
+      c.vel.x *= 27.78 / s;
+      c.vel.z *= 27.78 / s;
+      yaws.push(Math.abs(c.angVel.y));
+      const up = upOf(c), f = forwardOf(c);
+      roll = (Math.asin(Math.min(1, Math.abs(up.x * -f.z + up.z * f.x))) * 180) / Math.PI;
+    }
+    const fin = yaws[yaws.length - 1];
+    const t63 = yaws.findIndex((y) => y >= 0.63 * fin) / 100;
+    const t90 = yaws.findIndex((y) => y >= 0.9 * fin) / 100;
+    console.log(
+      `FEEL steer ${st} at 100 km/h: yaw t63 ${t63}s t90 ${t90}s overshoot x${(Math.max(...yaws) / fin).toFixed(2)} steady ${((fin * 180) / Math.PI).toFixed(1)} deg/s ${((fin * 27.78) / 12).toFixed(2)} g roll ${roll.toFixed(1)} deg`,
+    );
+  }
+}
+
+if (on('table')) {
+  // The skidpad's best steady lateral acceleration as a share of the tyre grip, every LAT_TABLE_STEP m/s
+  // (the first entry repeats the slowest measured one): VehicleSpec.latTable.
+  const shares: number[] = [];
+  const rows: string[] = [];
+  for (let v = LAT_TABLE_STEP; v <= 95; v += LAT_TABLE_STEP) {
+    const a = latLimit(v).a;
+    shares.push(Math.round((a / gripAccel(v, S)) * 1000) / 1000);
+    rows.push(`${v}:${a.toFixed(1)}/${maxLatAccel(v, S).toFixed(1)}`);
+  }
+  shares.unshift(shares[0]);
+  console.log(`TABLE m/s:measured/model ${rows.join(' ')}`);
+  console.log(`latTable: [${shares.join(', ')}],`);
+}
+
 if (on('grass')) {
   const c = rolling(0, grass);
   let t60 = 0;
@@ -255,16 +304,16 @@ if (on('grass')) {
 
 type Driver = (race: RaceSession, bot: Autopilot) => Controls;
 const botDriver: Driver = (race, bot) => bot.controls(race);
-/** A phone player on buttons: on/off steering with a small dead zone, on/off throttle and brake. */
-const touchDriver: Driver = (race, bot) => {
-  const c = bot.controls(race);
-  return { steer: Math.abs(c.steer) > 0.3 ? Math.sign(c.steer) : 0, gas: c.gas > 0.5 ? 1 : 0, brake: c.brake > 0 ? 1 : 0 };
-};
+/** A phone player on buttons (tests/classGates touchStyle), one bot.controls() per tick: the autopilot is stateful. */
+const touchDriver: Driver = (race, bot) => touchStyle(bot.controls(race));
+
+/** The same player pressing the nitro where the autopilot fires it: the gated driver (classGates touchNitroStyle). */
+const touchNitroDriver: Driver = (race, bot) => touchNitroStyle(bot.controls(race));
 
 /** runBot with a driver, assists and lap statistics. */
 function lap(track: Track, drive: Driver, a: Assists) {
-  const race = new (RaceSession as unknown as new (t: Track, a: Assists) => RaceSession)(track, a);
-  const bot = new Autopilot(track);
+  const race = new RaceSession(track, a, cls);
+  const bot = new Autopilot(track, cls);
   let stuck = 0, autos = 0, impacts = 0, ticks = 0, smoke = 0, lamp = 0, abs = 0, aero = 0, braking = 0;
   let last = { x: race.car.pos.x, z: race.car.pos.z };
   for (let n = 0; n < 30000 && race.phase !== 'finished'; n++) {
@@ -330,4 +379,19 @@ if (on('bot')) campaignRun('BOT', botDriver, NORMAL);
 if (on('touch')) {
   campaignRun('TOUCH', touchDriver, NORMAL);
   campaignRun('TOUCH', touchDriver, LOW);
+}
+if (on('nitro')) {
+  // Two cars on full throttle, one fires: the gain once the push is over (drag and the engine's fade included).
+  for (const v of [0, 100, 200, 300]) {
+    const a = rolling(v / 3.6), b = rolling(v / 3.6);
+    step(a, { steer: 0, gas: 1, brake: 0 });
+    step(b, { steer: 0, gas: 1, brake: 0, nitro: true });
+    for (let n = 1; n < 150; n++) {
+      step(a, { steer: 0, gas: 1, brake: 0 });
+      step(b, { steer: 0, gas: 1, brake: 0 });
+    }
+    console.log(`NITRO from ${v} km/h: ${kmh(b).toFixed(0)} vs ${kmh(a).toFixed(0)} km/h after 1.5 s (+${(kmh(b) - kmh(a)).toFixed(1)})`);
+  }
+  campaignRun('TOUCH+NITRO', touchNitroDriver, NORMAL);
+  campaignRun('TOUCH+NITRO', touchNitroDriver, LOW);
 }

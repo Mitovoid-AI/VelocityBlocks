@@ -161,12 +161,12 @@ function archFoot(r: number, foot: number, cy = ARCH_Y): { d: number; a: number 
   return { d: r * Math.cos(a), a };
 }
 
-/** Cut a wheel arch of radius r around zc into a profile whose bottom edge is being drawn towards +z at y = foot. */
-function cutArch(s: THREE.Shape, zc: number, r: number, foot: number): void {
-  const { d, a } = archFoot(r, foot);
+/** Cut a wheel arch of radius r around (zc, cy) into a profile whose bottom edge is being drawn towards +z at y = foot. */
+function cutArch(s: THREE.Shape, zc: number, r: number, foot: number, cy = ARCH_Y): void {
+  const { d, a } = archFoot(r, foot, cy);
   s.lineTo(zc - d, foot);
   // Clockwise from the rear foot over the top to the front foot.
-  s.absarc(zc, ARCH_Y, r, Math.PI - a, a, true);
+  s.absarc(zc, cy, r, Math.PI - a, a, true);
 }
 
 export interface Profile {
@@ -179,6 +179,8 @@ export interface Profile {
   /** Arch centres (wheel z) and radius before the bevel. */
   arches: readonly number[];
   archR: number;
+  /** Arch centre height (default ARCH_Y, the car's). */
+  archY?: number;
 }
 
 /**
@@ -191,7 +193,7 @@ export function profileGeometry(p: Profile, x0: number, x1: number, bevel = 0.03
   s.moveTo(p.front, p.foot);
   p.top(s);
   s.lineTo(p.rear, p.foot);
-  for (const zc of [...p.arches].sort((a, b) => a - b)) cutArch(s, zc, p.archR, p.foot);
+  for (const zc of [...p.arches].sort((a, b) => a - b)) cutArch(s, zc, p.archR, p.foot, p.archY);
   s.lineTo(p.front, p.foot);
   return extrudeX(s, x0, x1, bevel, 12);
 }
@@ -301,11 +303,12 @@ export const RUBBER = 0x1a1c20;
 /**
  * Tyre of width w around the x axis, outboard face at +x: rounded shoulders, a dark disc closing
  * the wheel on both sides (the rim's spokes sit in front of the outer one) and, with `band`, a
- * coloured stripe on the outer sidewall as vertex colours. The tread radius is exactly R.
+ * coloured stripe on the outer sidewall as vertex colours. The tread radius is exactly R. `shoulder`
+ * is the shoulder radius (a bike tyre's is nearly half its width: a round crown).
  */
-export function tyreGeometry(w: number, R = WHEEL_RADIUS, band?: THREE.ColorRepresentation): THREE.BufferGeometry {
+export function tyreGeometry(w: number, R = WHEEL_RADIUS, band?: THREE.ColorRepresentation, shoulder?: number): THREE.BufferGeometry {
   const h = w / 2;
-  const s = Math.min(0.05, h / 3);
+  const s = Math.min(shoulder ?? Math.min(0.05, h / 3), h * 0.9);
   const bead = R * 0.68;
   const barrel = R * 0.62;
   const k = 1 - Math.SQRT1_2;
@@ -386,10 +389,11 @@ export function rimGeometry(w: number, R = WHEEL_RADIUS, spokes = 5): THREE.Buff
     ),
   ];
   const len = barrel - 0.03;
+  // Dished: the outer end sits nearer the face than the hub, by at most 4 cm (long spokes dish less).
+  const dish = Math.min(0.14, Math.asin(Math.min(1, 0.04 / (len + 0.02))));
   for (let i = 0; i < spokes; i++) {
     const g = roundedBoxGeometry(0.055, 0.035, len, 1, 0.012);
-    // Dished: the outer end sits nearer the face than the hub.
-    g.translate(0, 0, len / 2 + 0.02).rotateX(-0.14).translate(0, h - 0.06, 0).rotateY((i / spokes) * Math.PI * 2);
+    g.translate(0, 0, len / 2 + 0.02).rotateX(-dish).translate(0, h - 0.06, 0).rotateY((i / spokes) * Math.PI * 2);
     parts.push(g);
   }
   parts.push(

@@ -2,7 +2,7 @@
 
 import { DT, MAX_SPEED } from '../core/constants';
 import { qrotate, type Quat, type V3 } from '../core/vec';
-import { ghostEndTick, ghostPose, type Ghost } from '../game/ghost';
+import { ghostEndTick, ghostNitro, ghostPose, type Ghost } from '../game/ghost';
 import { formatTime } from '../game/race';
 import type { Action } from '../input/input';
 import { CarView } from '../render/carView';
@@ -11,6 +11,26 @@ import type { Track } from '../track/track';
 import { esc, showScreen } from '../ui/dom';
 import type { App, Mode } from './app';
 import type { RaceEntry } from './raceMode';
+
+/** Heading on the ground plane (rad; grows turning left, the way the yaw rate is signed). */
+function headingOf(q: Quat): number {
+  const f = qrotate(q, { x: 0, y: 0, z: 1 });
+  return Math.atan2(f.x, f.z);
+}
+
+/**
+ * A ghost's yaw rate at `tick` (rad/s, + turning left): the heading change across one sample
+ * interval either side, so it is smooth between the stored samples. Draws a ghost bike's lean.
+ */
+export function ghostYawRate(g: Ghost, tick: number): number {
+  const t0 = Math.max(0, tick - g.interval);
+  const t1 = Math.min(ghostEndTick(g), tick + g.interval);
+  const a = ghostPose(g, t0);
+  const b = ghostPose(g, t1);
+  if (!a || !b || t1 <= t0) return 0;
+  const d = headingOf(b.rot) - headingOf(a.rot);
+  return Math.atan2(Math.sin(d), Math.cos(d)) / ((t1 - t0) * DT);
+}
 
 export class ReplayMode implements Mode {
   private car: CarView;
@@ -31,10 +51,12 @@ export class ReplayMode implements Mode {
     entry: RaceEntry,
     private readonly onExit: () => void,
   ) {
-    this.car = new CarView(app.world.scene, app.playerCarOptions());
+    // The ghost knows the class that drove it.
+    this.car = new CarView(app.world.scene, app.playerCarOptions(ghost.vehicle));
     this.route = traceRoute(track);
     app.hud.show(false);
     app.showTouch(false);
+    app.rig.vehicle = ghost.vehicle;
     app.rig.reset();
     showScreen(
       `<div class="row" style="position:absolute;top:calc(12px + var(--safe-t));left:calc(14px + var(--safe-l));right:calc(14px + var(--safe-r))">
@@ -93,7 +115,18 @@ export class ReplayMode implements Mode {
         };
     this.lastPos = { ...p.pos };
     const sp = Math.hypot(vel.x, vel.z);
-    this.car.applyPose(p.pos, p.rot, p.steer, (sp * dt) / 0.36, sp);
+    // The class's own wheel radius spins its wheels; the recorded nitro push shows its flames and FOV kick.
+    this.car.applyPose(
+      p.pos,
+      p.rot,
+      p.steer,
+      (sp * dt) / this.car.spec.wheelRadius,
+      sp,
+      cut ? 0 : ghostYawRate(this.ghost, t),
+      cut ? 0 : ghostNitro(this.ghost, t),
+    );
+    this.app.rig.lean = this.car.lean;
+    this.app.rig.boost = this.car.boost;
 
     // Shot selection.
     this.shotTime += dt;
@@ -166,5 +199,7 @@ export class ReplayMode implements Mode {
   exit(): void {
     this.car.dispose();
     this.app.rig.mode = this.app.store.settings.camera;
+    this.app.rig.lean = 0;
+    this.app.rig.boost = 0;
   }
 }

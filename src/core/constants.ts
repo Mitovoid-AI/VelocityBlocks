@@ -1,5 +1,7 @@
 // World and simulation constants shared by physics, track geometry and rendering.
 
+import type { VehicleClass } from './vehicles';
+
 /** Horizontal size of one track block cell, in metres. */
 export const CELL = 32;
 /** Vertical distance between two block levels, in metres. */
@@ -31,8 +33,20 @@ export const GRAVITY = 12;
 /** Hard speed cap (1000 km/h). */
 export const MAX_SPEED = 1000 / 3.6;
 
-/** Bump this whenever physics tuning changes so cached ghosts and author times are invalidated. */
-export const PHYSICS_VERSION = 6;
+/**
+ * Bump this whenever physics tuning changes so cached ghosts and author times are invalidated. v7: the
+ * nitro. The car without it is v6 bit for bit (tests/carGolden.test.ts), but the author times are nitro
+ * laps now (A01 13.90 -> 12.86 s), so v6 records would lose their Author medals and v6 custom-track author
+ * times (set without nitro) would be too easy. Campaign unlocks survive a bump ('finished' in storage).
+ */
+export const PHYSICS_VERSION = 7;
+
+/**
+ * Per-class tuning revision on top of PHYSICS_VERSION: bump one class's number when only that class's
+ * VehicleSpec changes, so only its records, ghosts and author times reset. The car stays 0 (its keys,
+ * ghosts and tables carry no revision); PHYSICS_VERSION is for changes every class shares.
+ */
+export const VEHICLE_REV: Readonly<Record<VehicleClass, number>> = Object.freeze({ car: 0, bike: 1, truck: 1 });
 
 /** Grid headings: 0 = north (-z), 1 = east (+x), 2 = south (+z), 3 = west (-x). Turning right adds 1. */
 export type Dir = 0 | 1 | 2 | 3;

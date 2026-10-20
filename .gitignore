@@ -33,3 +33,6 @@ ios/DerivedData/
 
 # Browser builds for game portals
 dist-*/
+
+# Play Store signing (see android/keystore.properties.example)
+android/keystore.properties

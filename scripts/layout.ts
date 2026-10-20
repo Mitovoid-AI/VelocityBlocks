@@ -9,7 +9,7 @@ try {
   const t = buildTrack('layout', code);
   const grid = new Map<string, string>();
   let maxI = 0, maxJ = 0;
-  t.blocks.forEach((p, n) => {
+  t.blocks.forEach((p) => {
     for (const [i, j, k] of cellsFor(p)) {
       const ch = BLOCKS[p.type].code[0] + String(k);
       grid.set(`${i},${j}`, (grid.get(`${i},${j}`) ?? '') + ch);

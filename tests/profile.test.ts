@@ -103,6 +103,8 @@ describe('migrateProfile', () => {
       name: 'Max',
       carColor: '#2f6fd6',
       carBody: 'racer',
+      vehicle: 'car',
+      models: {},
       showBadge: true,
       setupDone: false,
     });
@@ -113,12 +115,21 @@ describe('migrateProfile', () => {
       { name: 'Ana', carColor: '#ff4fa3', carBody: 'buggy', showBadge: false, setupDone: true },
       { playerName: 'Max', carColor: '#2f6fd6' },
     );
-    expect(p).toEqual({ name: 'Ana', carColor: '#ff4fa3', carBody: 'buggy', showBadge: false, setupDone: true });
+    expect(p).toEqual({ name: 'Ana', carColor: '#ff4fa3', carBody: 'buggy', vehicle: 'car', models: {}, showBadge: false, setupDone: true });
   });
 
   it('sanitises tampered values', () => {
-    const p = migrateProfile({ name: '<b>', carColor: 'red', carBody: 'tank', showBadge: 'no', setupDone: 'yes' }, {});
-    expect(p).toEqual({ name: '<b>', carColor: DEFAULT_CAR_COLOR, carBody: 'racer', showBadge: true, setupDone: false });
+    const p = migrateProfile({ name: '<b>', carColor: 'red', carBody: 'tank', vehicle: 'boat', showBadge: 'no', setupDone: 'yes' }, {});
+    expect(p).toEqual({ name: '<b>', carColor: DEFAULT_CAR_COLOR, carBody: 'racer', vehicle: 'car', models: {}, showBadge: true, setupDone: false });
+  });
+
+  it('keeps a realistic model per class and drops unknown or mismatched ones', () => {
+    const p = migrateProfile({ models: { car: 'coupe', bike: 'cafe', truck: 'lct3000' } }, {});
+    expect(p.models).toEqual({ car: 'coupe', bike: 'cafe', truck: 'lct3000' });
+    // A removed model, a car model on the bike, junk: back to Classic.
+    const q = migrateProfile({ models: { car: 'tank', bike: 'sport', truck: 7, boat: 'cafe' } }, {});
+    expect(q.models).toEqual({});
+    expect(migrateProfile({ models: ['sport'] }, {}).models).toEqual({});
   });
 
   it('survives non-object input', () => {
@@ -195,16 +206,18 @@ describe('Store settings', () => {
   });
 });
 
-describe('Controls tab tilt sensitivity steps', () => {
-  it('shows 1..9 and maps back to 0..1', async () => {
-    const { sensStep, stepSens } = await import('../src/app/profileScreen');
-    expect(sensStep(0)).toBe(1);
-    expect(sensStep(0.5)).toBe(5);
-    expect(sensStep(1)).toBe(9);
-    expect(stepSens(5)).toBe(0.5);
-    expect(stepSens(0)).toBe(0);
-    expect(stepSens(12)).toBe(1);
-    for (let n = 1; n <= 9; n++) expect(sensStep(stepSens(n))).toBe(n);
+describe('migrateSettings: tilt tuning', () => {
+  it('defaults to the feel of earlier builds, with the analog steering assist on', () => {
+    expect(migrateSettings({})).toMatchObject({ tiltDeadzone: 1.5, tiltSmoothing: 0.5, tiltCurve: 0, analogSteer: true });
+  });
+
+  it('keeps a continuous sensitivity (the slider) and clamps tampered tuning', () => {
+    expect(migrateSettings({ tiltSensitivity: 0.5125 }).tiltSensitivity).toBe(0.5125);
+    expect(migrateSettings({ tiltDeadzone: -3, tiltSmoothing: 'x', tiltCurve: 2 })).toMatchObject({ tiltDeadzone: 0, tiltSmoothing: 0.5, tiltCurve: 1 });
+    expect(migrateSettings({ tiltDeadzone: 9 }).tiltDeadzone).toBe(6);
+    expect(migrateSettings({ tiltDeadzone: 3.5, tiltSmoothing: 0.8, tiltCurve: 0.25 })).toMatchObject({ tiltDeadzone: 3.5, tiltSmoothing: 0.8, tiltCurve: 0.25 });
+    expect(migrateSettings({ analogSteer: false }).analogSteer).toBe(false);
+    expect(migrateSettings({ analogSteer: 'no' }).analogSteer).toBe(true);
   });
 });
 
@@ -248,7 +261,7 @@ describe('Store profile', () => {
     useStorage();
     const st = new Store();
     expect(st.returningPlayer).toBe(false);
-    expect(st.profile).toEqual({ name: DEFAULT_NAME, carColor: DEFAULT_CAR_COLOR, carBody: 'racer', showBadge: true, setupDone: false });
+    expect(st.profile).toEqual({ name: DEFAULT_NAME, carColor: DEFAULT_CAR_COLOR, carBody: 'racer', vehicle: 'car', models: {}, showBadge: true, setupDone: false });
     expect(st.profilePhoto()).toBeNull();
     // Its own writes (profile, finished) do not make the next launch a returning player.
     expect(new Store().returningPlayer).toBe(false);
@@ -438,5 +451,43 @@ describe('home card', () => {
     expect(html).toContain('data-act="profile"');
     // Not a .btn, so the home screen's auto-focus still lands on Play.
     expect(html).not.toMatch(/class="[^"]*\bbtn\b/);
+  });
+});
+
+describe('Vehicle tab', () => {
+  const profile = (vehicle: string) => migrateProfile({ vehicle, carBody: 'muscle' }, {});
+
+  it('picks Car, Bike or Truck; the body styles are the car only', async () => {
+    const { carHtml } = await import('../src/app/profileScreen');
+    const car = carHtml(profile('car'));
+    expect(car.match(/data-act="vehicle"/g)).toHaveLength(3);
+    expect(car).toMatch(/data-act="vehicle" data-v="car" role="radio" aria-checked="true"/);
+    expect(car.match(/data-act="body"/g)).toHaveLength(4);
+    expect(car).toMatch(/data-b="muscle" role="radio" aria-checked="true"/);
+    const bike = carHtml(profile('bike'));
+    expect(bike).toMatch(/data-act="vehicle" data-v="bike" role="radio" aria-checked="true"/);
+    expect(bike).not.toContain('data-act="body"');
+    expect(bike).toContain('Own records and medals');
+    // The colour is shared by every vehicle.
+    expect(bike).toContain('data-act="color"');
+  });
+
+  it("keeps a realistic bike's or truck's note whole (it may wrap); only the car's is cut to one line", async () => {
+    const { carHtml } = await import('../src/app/profileScreen');
+    const real = (vehicle: string) => carHtml(migrateProfile({ vehicle, models: { car: 'sport', bike: 'cafe', truck: 'lct3000' } }, {}));
+    expect(real('bike')).toMatch(/<div class="body-note" title="/);
+    expect(real('bike')).toContain('Factory paint: the rider wears your colour');
+    expect(real('truck')).toMatch(/<div class="body-note" title="/);
+    expect(real('car')).toMatch(/<div class="body-note one-line" title="/);
+    expect(carHtml(profile('car'))).toMatch(/<div class="body-note one-line"/);
+    expect(carHtml(profile('bike'))).toMatch(/<div class="body-note" title="/);
+  });
+
+  it('the home card names the Bike or Truck instead of a car body', async () => {
+    const { homeCardHtml } = await import('../src/app/profileScreen');
+    const card = (vehicle: string) =>
+      homeCardHtml({ store: { profile: profile(vehicle), profilePhoto: () => null } } as unknown as Parameters<typeof homeCardHtml>[0]);
+    expect(card('truck')).toContain('Truck');
+    expect(card('car')).toContain('Muscle');
   });
 });

@@ -1,11 +1,35 @@
 // Unified driving input: keyboard, gamepad, on-screen touch controls and optional tilt steering.
 
 import type { Controls } from '../physics/vehicle';
-import { clampCenter, filterRoll, motionRoll, screenAngle, steerFromRoll, tiltRoll, type TiltReading } from './tilt';
+import {
+  clampCenter,
+  MOTION_SMOOTH_SCALE,
+  motionRoll,
+  rawRoll,
+  RollFilter,
+  screenAngle,
+  smoothingCutoff,
+  steerFromRoll,
+  TILT_DEAD_DEG,
+  TILT_SMOOTH_DEFAULT,
+  tiltRoll,
+  type TiltReading,
+} from './tilt';
 
-export type Action = 'respawn' | 'restart' | 'pause' | 'camera' | 'ghost';
+/**
+ * Edge-triggered presses. 'nitro' is feedback only (RaceMode shakes the button when it is still
+ * recharging): the nitro itself reaches the race through read(), like the pedals.
+ */
+export type Action = 'respawn' | 'restart' | 'pause' | 'camera' | 'ghost' | 'nitro';
 /** Where an action came from (the pause screen says what paused the race). */
 export type ActionSource = 'key' | 'gamepad' | 'touch';
+
+/** Keys that fire the nitro: N, and either Shift. */
+const NITRO_KEYS = ['KeyN', 'ShiftLeft', 'ShiftRight'] as const;
+/** A nitro press counts for the next racing read() this long at most (a tap shorter than a tick still fires). */
+const NITRO_PRESS_MS = 250;
+/** The controller's nitro button: RB. */
+const PAD_NITRO = 5;
 
 /**
  * What the on-screen controls add up to (TouchControls). steer is null when no touch steers,
@@ -17,9 +41,6 @@ export interface TouchInput {
   brake: number;
 }
 
-/** devicemotion is used only when deviceorientation has been silent this long (no gyroscope). */
-const ORIENT_QUIET_MS = 1000;
-
 export class Input {
   private keys = new Set<string>();
   private touch: TouchInput = { steer: null, gas: 0, brake: 0 };
@@ -30,27 +51,41 @@ export class Input {
   /** Tilt steering: 0 (gentle) .. 1 (sharp), and the roll in degrees that means straight ahead. */
   tiltSensitivity = 0.5;
   tiltCenter = 0;
+  /** Tilt steering: degrees either side of straight ahead that steer nothing, and the centre feel (0 linear .. 1 gentle). */
+  tiltDeadzone = TILT_DEAD_DEG;
+  tiltCurve = 0;
+  private smoothing = TILT_SMOOTH_DEFAULT;
   private tiltOn = false;
-  /** Smoothed device roll in degrees; null until a reading arrives after tilt is turned on. */
-  private roll: number | null = null;
-  private orientAt = -Infinity;
+  /** The device roll smoothed (RollFilter); its value is null until a reading arrives after tilt is turned on. */
+  private readonly filter = new RollFilter();
+  /** The last raw roll and how strongly its source is smoothed (MOTION_SMOOTH_SCALE for gravity). */
+  private lastRaw: number | null = null;
+  private lastScale = 1;
+  /** deviceorientation has given a reading since tilt was turned on: gravity readings are ignored from then on. */
+  private orientSeen = false;
   /** iOS reports gravity with the opposite sign (set when tilt is turned on). */
   private iosGravity = false;
-  private tiltWaiters: (() => void)[] = [];
+  /** Pending waitForTilt calls: settled true by the first reading, false by setTilt(false) or their timeout. */
+  private tiltWaiters: ((ok: boolean) => void)[] = [];
   /** Called when the first reading arrives after tilt was turned on (TouchControls shows the tilt layout again). */
   onTiltLive: (() => void) | null = null;
+  /** The touch Nitro button is held (TouchControls). */
+  private nitroTouch = false;
+  /** When the nitro was last pressed (performance.now() ms), until a racing read() takes it. */
+  private nitroPressAt = -Infinity;
   private readonly onOrientation = (e: DeviceOrientationEvent) => {
     const r = tiltRoll(e.beta, e.gamma, screenAngle());
     if (!r) return; // phones without the sensor may send one all-null event
-    this.orientAt = performance.now();
-    this.takeRoll(r);
+    this.orientSeen = true;
+    this.takeRoll(r, 1);
   };
   private readonly onMotion = (e: DeviceMotionEvent) => {
-    // The orientation sensor is smoother; gravity alone is the fallback for phones without a gyroscope.
-    if (performance.now() - this.orientAt < ORIENT_QUIET_MS) return;
+    // The orientation sensor is smoother; gravity alone is the fallback for phones whose orientation
+    // sensor never answers. Not "silent for a while": Chromium sends nothing while a device is still.
+    if (this.orientSeen) return;
     const g = e.accelerationIncludingGravity;
     const r = motionRoll(g?.x, g?.y, g?.z, screenAngle(), this.iosGravity);
-    if (r) this.takeRoll(r);
+    if (r) this.takeRoll(r, MOTION_SMOOTH_SCALE);
   };
 
   constructor() {
@@ -65,7 +100,9 @@ export class Input {
       }
       if (!this.keys.has(k)) {
         const a = keyAction(k);
-        if (a && this.enabled) {
+        // Shift and N have no default to prevent (and Shift+Tab must keep moving the focus).
+        if (a === 'nitro') this.pressNitro('key');
+        else if (a && this.enabled) {
           e.preventDefault();
           this.actionHandler?.(a, 'key');
         }
@@ -87,11 +124,43 @@ export class Input {
 
   clearTouch(): void {
     this.touch = { steer: null, gas: 0, brake: 0 };
+    this.nitroTouch = false;
+  }
+
+  /** The touch Nitro button went down (true) or every finger left it (false). Going down is a press. */
+  setNitroTouch(held: boolean): void {
+    if (held && !this.nitroTouch) this.pressNitro('touch');
+    this.nitroTouch = held;
+  }
+
+  /**
+   * A nitro press (key, controller, touch, or an accessibility click on the button): it reaches the
+   * race on the next read() even when let go before it, and the mode hears it as the 'nitro' action.
+   */
+  pressNitro(src: ActionSource): void {
+    if (!this.enabled) return;
+    this.nitroPressAt = performance.now();
+    this.actionHandler?.('nitro', src);
+  }
+
+  /** Forget a nitro press no race has read yet (a new run starts). */
+  clearNitroPress(): void {
+    this.nitroPressAt = -Infinity;
   }
 
   /** A tilt reading has arrived since tilt was turned on (the sensor answers). */
   get tiltLive(): boolean {
-    return this.roll !== null;
+    return this.filter.value !== null;
+  }
+
+  /** Tilt smoothing 0 (raw) .. 1 (heavy), settings.tiltSmoothing. */
+  get tiltSmoothing(): number {
+    return this.smoothing;
+  }
+
+  set tiltSmoothing(s: number) {
+    this.smoothing = s;
+    this.filter.cutoff = smoothingCutoff(s);
   }
 
   /**
@@ -112,8 +181,11 @@ export class Input {
       window.removeEventListener('deviceorientation', this.onOrientation);
       window.removeEventListener('devicemotion', this.onMotion);
     }
-    this.roll = null;
-    this.orientAt = -Infinity;
+    this.filter.reset();
+    this.lastRaw = null;
+    this.orientSeen = false;
+    // Tilt was turned off (another steering mode picked) while a check waited: it is over, not failed later.
+    this.tiltWaiters.splice(0).forEach((f) => f(false));
   }
 
   /**
@@ -135,47 +207,61 @@ export class Input {
     return this.waitForTilt(ms);
   }
 
-  /** True as soon as a tilt reading is in (at once if one is), false after `ms` without one. */
+  /** True as soon as a tilt reading is in (at once if one is), false after `ms` without one or when tilt is turned off. */
   waitForTilt(ms: number): Promise<boolean> {
-    if (this.roll !== null) return Promise.resolve(true);
+    if (this.tiltLive) return Promise.resolve(true);
     return new Promise((resolve) => {
-      const done = () => {
+      const settle = (ok: boolean) => {
         clearTimeout(timer);
-        resolve(true);
+        this.tiltWaiters = this.tiltWaiters.filter((f) => f !== settle);
+        resolve(ok);
       };
-      const timer = setTimeout(() => {
-        this.tiltWaiters = this.tiltWaiters.filter((f) => f !== done);
-        resolve(false);
-      }, ms);
-      this.tiltWaiters.push(done);
+      const timer = setTimeout(() => settle(false), ms);
+      this.tiltWaiters.push(settle);
     });
+  }
+
+  /** The smoothed device roll in degrees now, or null with no reading (the tilt previews read it). */
+  tiltAngle(): number | null {
+    if (this.lastRaw === null) return null;
+    return this.filter.advance(this.lastRaw, performance.now(), this.lastScale);
   }
 
   /** Tilt steering -1..1 now (0 with no reading). */
   tiltSteer(): number {
-    return this.roll === null ? 0 : steerFromRoll(this.roll, this.tiltCenter, this.tiltSensitivity);
+    const roll = this.tiltAngle();
+    return roll === null ? 0 : steerFromRoll(roll, this.tiltCenter, this.tiltSensitivity, this.tiltDeadzone, this.tiltCurve);
   }
 
   /** Make the current roll straight ahead (at most 30 degrees off level). The new centre, or null with no reading. */
   recentreTilt(): number | null {
-    if (this.roll === null) return null;
-    this.tiltCenter = clampCenter(this.roll);
+    const roll = this.tiltAngle();
+    if (roll === null) return null;
+    this.tiltCenter = clampCenter(roll);
     return this.tiltCenter;
   }
 
-  private takeRoll(r: TiltReading): void {
-    const first = this.roll === null;
-    this.roll = filterRoll(this.roll, r, this.tiltCenter);
+  private takeRoll(r: TiltReading, scale: number): void {
+    const first = !this.tiltLive;
+    this.lastRaw = rawRoll(this.lastRaw, r, this.tiltCenter);
+    this.lastScale = scale;
+    this.filter.push(this.lastRaw, performance.now(), scale);
     if (!first) return;
-    this.tiltWaiters.splice(0).forEach((f) => f());
+    this.tiltWaiters.splice(0).forEach((f) => f(true));
     this.onTiltLive?.();
   }
 
+  /**
+   * The controls now. Call it once per racing step: a nitro press since the last call is taken
+   * here (as well as a held N, Shift, RB or touch button), so a second call in the same frame
+   * would not see it again. A press made with the brake down is kept until the brake lifts.
+   */
   read(): Controls {
     let steer = 0;
     let gas = 0;
     let brake = 0;
     const k = this.keys;
+    let nitro = this.nitroTouch || performance.now() - this.nitroPressAt < NITRO_PRESS_MS || NITRO_KEYS.some((n) => k.has(n));
     if (k.has('ArrowLeft') || k.has('KeyA')) steer -= 1;
     if (k.has('ArrowRight') || k.has('KeyD')) steer += 1;
     if (k.has('ArrowUp') || k.has('KeyW')) gas = 1;
@@ -193,11 +279,18 @@ export class Input {
       if (Math.abs(pad.steer) > Math.abs(steer)) steer = pad.steer;
       gas = Math.max(gas, pad.gas);
       brake = Math.max(brake, pad.brake);
+      nitro = nitro || pad.nitro === true;
     }
     // Any brake (the brake bar gives at least 0.55) lifts the automatic throttle.
     if (this.autoAccelerate && brake === 0) gas = Math.max(gas, 1);
+    // The press is taken only by a step that can fire it (stepCar needs the brake up): one made at the
+    // end of a braking zone waits, NITRO_PRESS_MS at most, for the brake to lift.
+    if (brake === 0) this.nitroPressAt = -Infinity;
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
-    return { steer: Math.max(-1, Math.min(1, steer)), gas: clamp01(gas), brake: clamp01(brake) };
+    const c: Controls = { steer: Math.max(-1, Math.min(1, steer)), gas: clamp01(gas), brake: clamp01(brake) };
+    // Only when asked for, so the plain {steer, gas, brake} of every other tick stays as it was.
+    if (nitro) c.nitro = true;
+    return c;
   }
 
   /** Only the gamepad's button presses, for screens that don't read() (Start resumes a paused race). */
@@ -225,18 +318,28 @@ export class Input {
       [8, 'restart'],
       [9, 'pause'],
       [4, 'camera'],
+      [PAD_NITRO, 'nitro'],
     ];
     for (const [i, a] of map) {
       const now = pressed(i);
-      if (now && !this.padPrev[i] && this.enabled) this.actionHandler?.(a, 'gamepad');
+      if (now && !this.padPrev[i]) {
+        if (a === 'nitro') this.pressNitro('gamepad');
+        else if (this.enabled) this.actionHandler?.(a, 'gamepad');
+      }
       this.padPrev[i] = now;
     }
-    return { steer, gas, brake };
+    const c: Controls = { steer, gas, brake };
+    if (pressed(PAD_NITRO)) c.nitro = true;
+    return c;
   }
 }
 
 function keyAction(code: string): Action | null {
   switch (code) {
+    case 'KeyN':
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      return 'nitro';
     case 'Backspace':
     case 'KeyR':
       return 'respawn';
@@ -255,10 +358,13 @@ function keyAction(code: string): Action | null {
   }
 }
 
-/** A text field, checkbox, slider or drop-down has focus: it takes every key. */
+/** A text field, checkbox, slider (native or the role=slider of src/ui/slider.ts) or drop-down has focus: it takes every key. */
 function isTyping(e: KeyboardEvent): boolean {
   const t = e.target as HTMLElement | null;
-  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+  return (
+    !!t &&
+    (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.getAttribute?.('role') === 'slider')
+  );
 }
 
 /** Enter on a focused button or link clicks it, so it is not the restart key there. */

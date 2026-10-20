@@ -12,6 +12,16 @@ export const AVATAR_SIZE = 0.9;
 /** Badge centre above the car's centre of mass, in metres. Clears the racer endplates (0.92). */
 export const AVATAR_LIFT = 1.55;
 export const AVATAR_BOB_AMP = 0.05;
+/** Room between a body's top and the badge centre: half the badge, its bob and a 0.1 m gap. */
+export const AVATAR_CLEARANCE = AVATAR_SIZE / 2 + AVATAR_BOB_AMP + 0.1;
+
+/**
+ * Badge lift for a vehicle whose body reaches `top` above its centre: the car's lift unless the body
+ * is taller than a car's (the truck's cab and box), so the badge never sits inside it.
+ */
+export function avatarLift(top: number): number {
+  return Math.max(AVATAR_LIFT, top + AVATAR_CLEARANCE);
+}
 /** Bob rate in rad/s. */
 export const AVATAR_BOB_RATE = 2.4;
 export const GHOST_AVATAR_OPACITY = 0.5;
@@ -43,7 +53,11 @@ export class AvatarBadge {
   private fade = 1;
   private disposed = false;
 
-  constructor(spec: AvatarSpec) {
+  /** `lift`: badge centre above the vehicle's centre (avatarLift). */
+  constructor(
+    spec: AvatarSpec,
+    private readonly lift = AVATAR_LIFT,
+  ) {
     // Ring first: setPhoto below draws straight away.
     this.ring = spec.ring;
     this.canvas = document.createElement('canvas');
@@ -106,7 +120,7 @@ export class AvatarBadge {
 
   /** Centre the badge above a car centre at (x, y, z); t in seconds drives the bob. */
   place(x: number, y: number, z: number, t: number): void {
-    this.sprite.position.set(x, y + AVATAR_LIFT + Math.sin(t * AVATAR_BOB_RATE + this.phase) * AVATAR_BOB_AMP, z);
+    this.sprite.position.set(x, y + this.lift + Math.sin(t * AVATAR_BOB_RATE + this.phase) * AVATAR_BOB_AMP, z);
   }
 
   dispose(): void {

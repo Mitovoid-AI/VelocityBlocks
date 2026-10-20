@@ -1,5 +1,8 @@
-// Car body styles the driver can pick. Purely visual: every body uses the same physics.
+// Car body styles the driver can pick, and the picker's view of the vehicle classes. Body styles are
+// purely visual: every car body uses the same physics (the vehicle class sets how it drives).
 // Dependency-free so storage, the UI and node tests can import it without three.js.
+
+import type { VehicleClass } from './vehicles';
 
 export type CarBody = 'racer' | 'buggy' | 'muscle' | 'formula';
 
@@ -30,3 +33,52 @@ export const DEFAULT_CAR_BODY: CarBody = 'racer';
 export function isCarBody(v: unknown): v is CarBody {
   return CAR_BODIES.some((b) => b.id === v);
 }
+
+/** Icon wheel circle: [cx, cy, r] in the 64x24 viewBox. */
+export type IconWheel = readonly [number, number, number];
+
+/** Where every car body icon's wheels go. */
+export const CAR_ICON_WHEELS: readonly IconWheel[] = [
+  [16, 19, 5],
+  [46, 19, 5],
+];
+
+export interface VehicleInfo {
+  readonly id: VehicleClass;
+  readonly name: string;
+  readonly blurb: string;
+  /** SVG path for a 64x24 viewBox, nose to the right; the wheels are drawn from `wheels`. */
+  readonly icon: string;
+  readonly wheels: readonly IconWheel[];
+}
+
+/** The vehicle picker, in picker order. The Car's icon is the default body's. */
+export const VEHICLE_INFO: readonly VehicleInfo[] = [
+  { id: 'car', name: 'Car', blurb: 'Grip and downforce: the all-rounder', icon: CAR_BODIES[0].icon, wheels: CAR_ICON_WHEELS },
+  {
+    id: 'bike',
+    name: 'Bike',
+    blurb: 'Light and quick to turn; leans into corners',
+    icon: 'M6 13 L14 9 L24 9 L30 5 L34 3 L38 4 L37 7 L44 8 L50 6 L56 8 L60 12 L54 14 L44 13 L36 15 L22 15 Z',
+    wheels: [
+      [13, 18, 5.5],
+      [51, 18, 5.5],
+    ],
+  },
+  {
+    id: 'truck',
+    name: 'Truck',
+    blurb: 'Heavy and planted; slower to turn',
+    icon: 'M3 3 L40 3 L40 17 L3 17 Z M42 5 L54 5 L60 10 L61 17 L42 17 Z',
+    wheels: [
+      [14, 19, 4.5],
+      [51, 19, 4.5],
+    ],
+  },
+];
+
+export function vehicleInfo(id: VehicleClass): VehicleInfo {
+  return VEHICLE_INFO.find((v) => v.id === id) ?? VEHICLE_INFO[0];
+}
+
+export const VEHICLE_NOTE = 'The vehicle changes how it drives and keeps its own records and medals. Bodies are looks only.';

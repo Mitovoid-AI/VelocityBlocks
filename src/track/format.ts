@@ -3,12 +3,15 @@
 // {
 //   "format": "velocity-blocks-track", "version": 1,
 //   "name": "...", "author": "...", "authorTime": 23450,
+//   "authorTimes": { "bike": { "t": 25100, "rev": 1 } },   // optional: the other vehicle classes
 //   "blocks": [["St", 3, 4, 0, 0], ["S", 3, 3, 0, 0], ...]   // [code, i, j, level, dir]
 // }
+// authorTime is the car's. Older builds ignore authorTimes; an entry for another class revision is kept and
+// simply not used (authorTimeFor), like an old ghost.
 
 import { GRID, MAX_LEVEL, type Dir } from '../core/constants';
 import { BLOCK_BY_CODE, BLOCKS } from './blocks';
-import { cellsFor, type Placement, type TrackData } from './track';
+import { cellsFor, type ClassAuthorTime, type Placement, type TrackData } from './track';
 
 export const FORMAT_ID = 'velocity-blocks-track';
 
@@ -20,6 +23,7 @@ export function exportTrack(data: TrackData): string {
       name: data.name,
       author: data.author,
       authorTime: data.authorTime ?? null,
+      ...(data.authorTimes && Object.keys(data.authorTimes).length ? { authorTimes: data.authorTimes } : {}),
       blocks: data.blocks.map((b) => [BLOCKS[b.type].code, b.i, b.j, b.k, b.dir]),
     },
     null,
@@ -59,5 +63,20 @@ export function importTrack(text: string): TrackData {
   const name = typeof obj.name === 'string' && obj.name.trim() ? obj.name.trim().slice(0, 40) : 'Imported track';
   const author = typeof obj.author === 'string' ? obj.author.slice(0, 30) : 'Unknown';
   const at = typeof obj.authorTime === 'number' && obj.authorTime > 0 ? Math.round(obj.authorTime) : undefined;
-  return { name, author, blocks, authorTime: at };
+  const authorTimes = classTimes(obj.authorTimes);
+  return { name, author, blocks, authorTime: at, ...(authorTimes ? { authorTimes } : {}) };
+}
+
+/** The valid Bike and Truck author times of an imported file: positive finite times with a revision. */
+function classTimes(raw: unknown): TrackData['authorTimes'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: NonNullable<TrackData['authorTimes']> = {};
+  for (const cls of ['bike', 'truck'] as const) {
+    const e = (raw as Record<string, unknown>)[cls] as Partial<ClassAuthorTime> | undefined;
+    if (!e || typeof e !== 'object') continue;
+    const { t, rev } = e;
+    if (typeof t !== 'number' || !(t > 0) || !isFinite(t) || !Number.isInteger(rev) || rev! < 0) continue;
+    out[cls] = { t: Math.round(t), rev: rev! };
+  }
+  return Object.keys(out).length ? out : undefined;
 }

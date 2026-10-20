@@ -15,6 +15,7 @@ import {
   LINE_HALF_WIDTH,
   minCurvatureOffsets,
   nearestSample,
+  NITRO_RGB,
   offsetRoute,
   PacePilot,
   paceLineJob,
@@ -29,7 +30,7 @@ import {
   type Pilot,
   type RacingLineData,
 } from '../src/game/racingLine';
-import { DRIFT_STEER, maxBrakeDecel, maxLatAccel } from '../src/physics/vehicle';
+import { CAR, DRIFT_STEER, maxBrakeDecel, maxLatAccel } from '../src/physics/vehicle';
 import { buildTrack } from '../src/track/builder';
 import { CAMPAIGN_DEFS } from '../src/track/campaign';
 import { traceRoute, type Route } from '../src/track/route';
@@ -41,7 +42,7 @@ const campaignTrack = (id: string) => {
   return new Track(buildTrack(`${id} ${name}`, code));
 };
 const offsets = (track: Track, base: Route) => runJob(minCurvatureOffsets(base.points, lateralLimits(track, base)));
-const { Throttle: T, Lift: L, Brake: B } = Phase;
+const { Throttle: T, Lift: L, Brake: B, Nitro: N } = Phase;
 const ph = (...runs: [number, number][]) => Uint8Array.from(runs.flatMap(([p, n]) => Array(n).fill(p)));
 
 describe('minimum-curvature line', () => {
@@ -133,12 +134,12 @@ describe('minimum-curvature line', () => {
 
 describe('pace planner', () => {
   it("takes a curve at the share of the physics' cornering limit it plans with", () => {
-    expect(cornerSpeed(0)).toBe(200);
+    expect(cornerSpeed(0, CAR)).toBe(200);
     let last = Infinity;
     for (const k of [1 / 100, 1 / 48, 1 / 16]) {
-      const v = cornerSpeed(k);
+      const v = cornerSpeed(k, CAR);
       expect(v).toBeLessThan(200);
-      expect(Math.abs((v * v * k) / (LAT_USE * maxLatAccel(v)) - 1), `k = ${k}`).toBeLessThan(1e-3);
+      expect(Math.abs((v * v * k) / (LAT_USE * maxLatAccel(v, CAR)) - 1), `k = ${k}`).toBeLessThan(1e-3);
       expect(v).toBeLessThan(last);
       last = v;
     }
@@ -147,14 +148,14 @@ describe('pace planner', () => {
   it('brakes back from every limit within the braking it plans with, and never in the air', () => {
     const line = traceRoute(trackOf('St Sx3 J G G Sx3 R Sx3 F'));
     const pts = line.points;
-    const { vLimit, vTarget } = runJob(planSpeeds(line));
+    const { vLimit, vTarget } = runJob(planSpeeds(line, false, CAR));
     let air = 0;
     for (let n = 0; n < pts.length; n++) {
       expect(vTarget[n]).toBeLessThanOrEqual(vLimit[n]);
       if (n === pts.length - 1) continue;
       const ds = pts[n + 1].s - pts[n].s;
       const next = vTarget[n + 1];
-      expect(vTarget[n] ** 2).toBeLessThanOrEqual(next ** 2 + 2 * BRAKE_USE * maxBrakeDecel(next) * ds + 1e-6);
+      expect(vTarget[n] ** 2).toBeLessThanOrEqual(next ** 2 + 2 * BRAKE_USE * maxBrakeDecel(next, CAR) * ds + 1e-6);
       if (pts[n].air || pts[n + 1].air) {
         expect(vTarget[n], `point ${n}`).toBeLessThanOrEqual(next + 1e-9);
         air++;
@@ -285,6 +286,24 @@ describe('sampling', () => {
     // A different layout does not take it.
     expect(runJob(decodeLine(trackOf('St Sx5 F'), st))).toBeNull();
   });
+
+  it("marks where the pace car's nitro pushed, and stores it next to full brakes", () => {
+    // 20 m/s from the spawn at 9 m: the nitro on for ticks 50-150 (19-39 m).
+    const t = straightTrace(track, 250, 20, 0, 1, 0);
+    t.nitro = t.x.map((_, k) => (k >= 50 && k <= 150 ? 1 : 0));
+    const d = runJob(sampleLine(t, track, base));
+    for (let i = 21; i <= 37; i++) expect(d.phase[i], `${i}`).toBe(Phase.Nitro);
+    for (const i of [12, 16, 42, 50]) expect(d.phase[i], `${i}`).toBe(Phase.Throttle);
+    // Every phase and the strongest brake round-trip (the brake bits sit next to the phase bits).
+    for (let i = 52; i < 58; i++) {
+      d.phase[i] = Phase.Brake;
+      d.brake[i] = 1;
+    }
+    const back = runJob(decodeLine(track, encodeLine(d, base.length)))!;
+    expect(back.phase).toEqual(d.phase);
+    expect(back.brake).toEqual(d.brake);
+    expect(new Set(back.phase)).toEqual(new Set([Phase.Throttle, Phase.Nitro, Phase.Brake]));
+  });
 });
 
 describe('pace drive', () => {
@@ -392,6 +411,16 @@ describe('lookups and colours', () => {
     expect(rgb(15)).not.toEqual(rgb(5));
     const auto = lineColors(d, true);
     expect(Array.from(auto.subarray(45, 48))).toEqual(rgb(5));
+  });
+
+  it('colours the nitro violet, with lifts as throttle or not', () => {
+    const d = { phase: ph([T, 10], [N, 10], [T, 10]), brake: new Float32Array(30) } as unknown as RacingLineData;
+    for (const auto of [false, true]) {
+      const c = lineColors(d, auto);
+      expect(Array.from(c.subarray(15 * 3, 15 * 3 + 3)).map((v) => +v.toFixed(5))).toEqual(NITRO_RGB.map((v) => +v.toFixed(5)));
+      expect(c[15 * 3 + 2]).toBeGreaterThan(c[15 * 3 + 1]);
+      expect(c[3 * 3 + 1]).toBeGreaterThan(c[3 * 3 + 2]);
+    }
   });
 });
 

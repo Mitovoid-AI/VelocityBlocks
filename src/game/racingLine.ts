@@ -1,32 +1,49 @@
 // Racing-line assist data: a minimum-curvature line inside the road (outside, apex, outside), driven by
-// a pace pilot that plans its speed from the physics' own grip and brake limits, sampled every metre
-// of centre line and coloured from the measured speed profile: green throttle, yellow lift, red brake.
-// Campaign lines are precomputed (scripts/racing-lines.ts writes src/track/racingLines.json for this
-// PHYSICS_VERSION); other tracks run the same job time-sliced on the main thread through LineJobs.
+// a pace pilot that plans its speed from the physics' own grip and brake limits and fires its nitro where a
+// whole push fits that plan (bot.ts nitroFits), sampled every metre of centre line and coloured from the
+// measured speed profile: green throttle, yellow lift, red brake, violet where the pace car's nitro pushed.
+// The red zones fit a driver who fires where the pace car did; one without a nitro then arrives slower and
+// sees red a little early, which is safe, and braking ends a push, so one who fires later can still stop.
+// Campaign lines are precomputed per vehicle class (scripts/racing-lines.ts writes src/track/racingLines.json
+// for this PHYSICS_VERSION and each class's VEHICLE_REV); other tracks run the same job time-sliced on the
+// main thread through LineJobs. Lines are open-road lines in both wall modes.
 // Pure TypeScript with no rendering (render/racingLine.ts draws it).
 
-import { DT, PHYSICS_VERSION, ROAD_HALF } from '../core/constants';
+import { DT, GRAVITY, PHYSICS_VERSION, ROAD_HALF, VEHICLE_REV } from '../core/constants';
 import { clamp, vdot } from '../core/vec';
+import { isVehicleClass, type VehicleClass } from '../core/vehicles';
 import {
+  BOOST,
+  CAR,
+  cornerSpeedAt,
+  DEFAULT_ASSISTS,
   DRIFT_STEER,
   forwardOf,
+  lineHalfWidth,
   maxBrakeDecel,
   maxLatAccel,
   maxSteerAngle,
+  nitroReady,
   NO_CONTROLS,
   speedOf,
+  vehicleSpec,
   type Controls,
+  type VehicleSpec,
 } from '../physics/vehicle';
 import { nearestPoint, traceRoute, type Route, type RoutePoint } from '../track/route';
-import type { Track } from '../track/track';
+import { Track, type PlacedBlock } from '../track/track';
 import racingLines from '../track/racingLines.json';
+import { nitroFits } from './bot';
 import { quantise, RaceSession } from './race';
 
 // ---- Line shape -------------------------------------------------------------
 
 /** Sample spacing along the centre line, in metres. */
 export const LINE_STEP = 1;
-/** Widest offset from the centre line: 2 m inside the road edge leaves room for the car and tracking error. */
+/**
+ * Widest offset from the centre line for the car: 2 m inside the road edge leaves room for the car and
+ * tracking error (every class keeps its hull 1 m inside: lineHalfWidth).
+ */
 export const LINE_HALF_WIDTH = ROAD_HALF - 2;
 /** Offset limit over boost and turbo pads, which only fire within 7.5 m of the centre (race.ts checkPads). */
 export const PAD_HALF_WIDTH = 5;
@@ -49,13 +66,47 @@ const HOLD_BAND = 1;
 const BRAKE_STEER = DRIFT_STEER - 0.02;
 /** Speed target where nothing limits it. */
 const V_FREE = 200;
+/**
+ * The pace pilot per class: pursuit lookahead (m) at rest and per m/s of speed (a slow yaw response needs
+ * to look further ahead to hold a line at the cornering limit), the steering (input or vehicle) at which
+ * it lets go of the brakes (BRAKE_STEER where a brake tap would start a drift), and the share of the
+ * full-brake deceleration its speed plan brakes at (BRAKE_USE; less where braking runs into turn-in).
+ */
+interface PaceTuning {
+  readonly look: readonly [number, number];
+  readonly brakeSteer: number;
+  readonly brakeUse: number;
+}
+const PACE: Record<VehicleClass, PaceTuning> = {
+  car: { look: [7, 0.32], brakeSteer: BRAKE_STEER, brakeUse: BRAKE_USE },
+  // The bike and the truck never brake-drift, so they trail-brake all the way in; the bike's light front
+  // needs its braking planned a little short.
+  bike: { look: [7, 0.32], brakeSteer: Infinity, brakeUse: 0.8 },
+  truck: { look: [7, 0.32], brakeSteer: Infinity, brakeUse: BRAKE_USE },
+};
 /** A pace drive gives up when it has not moved along the route for this long (ticks). */
 const STUCK_TICKS = 300;
+/**
+ * A pace lap crashed when, once over CRASH_FROM m/s, the car is found below CRASH_SHARE of its plan's speed
+ * (at most CRASH_CAP m/s): clean laps never drop under 0.3 of it; a car that hit a barrier or tipped over
+ * is nearly stopped. Checked every CRASH_EVERY ticks, so a short stop is seen.
+ */
+const CRASH_FROM = 15;
+const CRASH_SHARE = 0.25;
+const CRASH_CAP = 50;
+const CRASH_EVERY = 10;
+/**
+ * It also crashed when its horizontal speed drops by more than HIT_DROP m/s within HIT_TICKS ticks with its
+ * wheels on the road: a barrier hit (40 km/h in 0.05 s is 220 m/s^2; full brakes and landings stay under a
+ * third of that).
+ */
+const HIT_DROP = 40 / 3.6;
+const HIT_TICKS = 5;
 
 // ---- Phases -----------------------------------------------------------------
 
-/** What the line tells the driver to do at a sample. */
-export const Phase = { Throttle: 0, Lift: 1, Brake: 2 } as const;
+/** What the line tells the driver to do at a sample (Nitro: full throttle with the pace car's nitro pushing). */
+export const Phase = { Throttle: 0, Lift: 1, Brake: 2, Nitro: 3 } as const;
 export type Phase = (typeof Phase)[keyof typeof Phase];
 
 /** Measured deceleration (m/s^2) that counts as braking; coasting, drag and climbs stay well under it. */
@@ -209,20 +260,17 @@ export function offsetRoute(base: Route, e: ArrayLike<number>): Route {
 // ---- Pace pilot -------------------------------------------------------------
 
 /** Fastest speed (m/s) the planner takes a curve of curvature k (1/m) at: v^2 k = LAT_USE * maxLatAccel(v). */
-export function cornerSpeed(k: number): number {
-  if (k <= 0 || V_FREE * V_FREE * k <= LAT_USE * maxLatAccel(V_FREE)) return V_FREE;
-  let lo = 0, hi = V_FREE;
-  for (let n = 0; n < 40; n++) {
-    const m = (lo + hi) / 2;
-    if (m * m * k <= LAT_USE * maxLatAccel(m)) lo = m;
-    else hi = m;
-  }
-  return lo;
+export function cornerSpeed(k: number, S: VehicleSpec): number {
+  return cornerSpeedAt(k, LAT_USE, S, V_FREE);
 }
 
 /** Anything that drives a race along a route (PacePilot, test stubs). */
 export interface Pilot {
   readonly route: Route;
+  /** The vehicle it drives (default the car). */
+  readonly spec?: VehicleSpec;
+  /** Its planned speed per route point, if it has one (crash detection). */
+  readonly vTarget?: ArrayLike<number>;
   controls(race: RaceSession): Controls;
 }
 
@@ -234,39 +282,120 @@ export interface SpeedPlan {
   vTarget: Float64Array;
 }
 
+/** Where a line runs over a boost or turbo pad: the distance along it where the pad fires, and its push. */
+export interface PadPush {
+  s: number;
+  power: number;
+  time: number;
+}
+
+/** The pads a line fires (race.ts checkPads: 4..28 m along the pad, within 7.5 m of its centre line). */
+export function padPushes(track: Track, route: Route): PadPush[] {
+  const out: PadPush[] = [];
+  let last: PlacedBlock | null = null;
+  for (const p of route.points) {
+    let on: PlacedBlock | null = null;
+    for (const b of track.blocksAt(p.x, p.z) ?? []) {
+      if (!b.def.pad || Math.abs(b.baseY - p.y) >= 2.5) continue;
+      const l = b.toLocal(p.x, p.z);
+      if (l.b >= 4 && l.b <= 28 && Math.abs(l.a) <= 7.5) on = b;
+    }
+    if (on && on !== last) out.push({ s: p.s, ...BOOST[on.def.pad!] });
+    last = on;
+  }
+  return out;
+}
+
+/** The push (m/s^2) of the pads in `pads` at distance s along a line, passed at speed v. */
+function padPushAt(pads: readonly PadPush[], s: number, v: number): number {
+  let a = 0;
+  for (const p of pads) {
+    const t = (s - p.s) / Math.max(1, v);
+    if (t >= 0 && t < p.time) a += p.power * (0.35 + 0.65 * (1 - t / p.time));
+  }
+  return a;
+}
+
 /**
  * The pace pilot's speed plan for a line, from the physics' cornering and braking limits. Crests are
- * taken flat unless `crests` is set (then they are limited as the autopilot does).
+ * taken flat unless `crests` is set (then they are limited as the autopilot does). The plan brakes in a
+ * straight line all the way to each limit unless `cautious` is set: then it brakes only as hard as the car
+ * really can there (paceBrakeShare, less the push of the `pads` it runs over), which moves the braking
+ * before a crest, a long turn-in or a pad (A10: a turbo pad, a climb, and a hairpin at its top).
  */
-export function* planSpeeds(route: Route, crests = false): Generator<void, SpeedPlan> {
+export function* planSpeeds(
+  route: Route,
+  crests: boolean,
+  S: VehicleSpec,
+  cautious = false,
+  pads: readonly PadPush[] = [],
+): Generator<void, SpeedPlan> {
   const pts = route.points;
   const N = pts.length;
   const lim = new Float64Array(N);
   for (let n = 0; n < N; n++) {
-    lim[n] = cornerSpeed(pts[n].curv);
+    lim[n] = cornerSpeed(pts[n].curv, S);
     if ((n & 63) === 63) yield;
   }
-  // Crests: keep the wheels on the road where the deck curves away.
-  for (let n = 1; crests && n < N - 1; n++) {
+  // Crests (the deck curving away, 1/m): keep the wheels on the road there, if asked.
+  const crest = new Float64Array(N);
+  for (let n = 1; n < N - 1; n++) {
     const ds = (pts[n + 1].s - pts[n - 1].s) / 2;
     if (ds <= 0 || pts[n].air || pts[n + 1].air || pts[n - 1].air) continue;
     const ypp = (pts[n + 1].y - 2 * pts[n].y + pts[n - 1].y) / (ds * ds);
-    if (ypp < -1e-4) lim[n] = Math.min(lim[n], Math.sqrt(36 / -ypp));
+    if (ypp >= -1e-4) continue;
+    crest[n] = -ypp;
+    if (crests) lim[n] = Math.min(lim[n], Math.sqrt(36 / -ypp));
   }
+  const brakeUse = PACE[S.vehicle].brakeUse;
   const v = Float64Array.from(lim);
   for (let n = N - 2; n >= 0; n--) {
     const ds = pts[n + 1].s - pts[n].s;
+    const vn = v[n + 1];
     // No brakes in the air.
-    const a = pts[n].air || pts[n + 1].air ? 0 : BRAKE_USE * maxBrakeDecel(v[n + 1]);
-    v[n] = Math.min(v[n], Math.sqrt(v[n + 1] * v[n + 1] + 2 * a * ds));
+    let a = pts[n].air || pts[n + 1].air ? 0 : brakeUse * maxBrakeDecel(vn, S);
+    if (cautious) {
+      // At the speed the straight-line plan would have here; a pad pushing harder than the brakes hold
+      // means arriving faster, so the plan is slower before it.
+      const vc = Math.sqrt(vn * vn + 2 * a * ds);
+      if (a > 0) a *= paceBrakeShare(pts, n, vc, Math.max(crest[n], crest[n + 1]), S);
+      a -= padPushAt(pads, pts[n].s, vc);
+    }
+    v[n] = Math.min(v[n], Math.sqrt(Math.max(1, vn * vn + 2 * a * ds)));
+    if ((n & 63) === 63) yield;
   }
   return { vLimit: lim, vTarget: v };
 }
 
 /**
+ * Share (0..1) of its straight-line braking the pace pilot gets at route point n at speed v: over a crest
+ * of curvature `crest` (1/m) the tyres keep only the load the deck curving away leaves them (none once
+ * v^2 times it passes gravity and downforce); its pursuit steering towards the lookahead point takes grip
+ * (friction circle against maxLatAccel); and none where that steering is past where it lets go of the
+ * brakes (PaceTuning.brakeSteer).
+ */
+function paceBrakeShare(pts: readonly RoutePoint[], n: number, v: number, crest: number, S: VehicleSpec): number {
+  const tune = PACE[S.vehicle];
+  const load = clamp(1 - (v * v * crest) / (GRAVITY + S.aeroCl * v * v), 0, 1);
+  if (load === 0) return 0;
+  // The pursuit arc from point n (on the line, heading along it) to the point the pilot aims at.
+  const p = pts[n];
+  const look = tune.look[0] + v * tune.look[1];
+  let t = n;
+  while (t < pts.length - 1 && pts[t].s - p.s < look) t++;
+  const dx = pts[t].x - p.x, dz = pts[t].z - p.z;
+  const d2 = dx * dx + dz * dz;
+  const k = d2 > 1e-9 ? (2 * Math.abs(p.hx * dz - p.hz * dx)) / d2 : 0;
+  if (Math.atan(S.wheelbase * k) > tune.brakeSteer * maxSteerAngle(v, S)) return 0;
+  const lat = Math.min(1, (v * v * k) / maxLatAccel(v, S));
+  return load * Math.sqrt(1 - lat * lat);
+}
+
+/**
  * Drives a racing line at the physics' limits: pure pursuit steering (as the autopilot in bot.ts),
- * the speed plan of planSpeeds, and proportional brakes, released once the steering nears the drift
- * range. The autopilot stays the conservative author-time driver.
+ * the speed plan of planSpeeds, proportional brakes, released once the steering nears the drift
+ * range, and the nitro where a whole push fits the plan (bot.ts nitroFits; unless `nitro` is false).
+ * The autopilot stays the conservative author-time driver.
  */
 export class PacePilot implements Pilot {
   readonly vLimit: Float64Array;
@@ -275,7 +404,9 @@ export class PacePilot implements Pilot {
 
   constructor(
     readonly route: Route,
-    plan: SpeedPlan = runJob(planSpeeds(route)),
+    readonly spec: VehicleSpec = CAR,
+    plan: SpeedPlan = runJob(planSpeeds(route, false, spec)),
+    readonly nitro = true,
   ) {
     this.vLimit = plan.vLimit;
     this.vTarget = plan.vTarget;
@@ -287,7 +418,8 @@ export class PacePilot implements Pilot {
     if (pts.length < 2) return { steer: 0, gas: 1, brake: 0 };
     this.idx = nearestPoint(this.route, car.pos.x, car.pos.y, car.pos.z, this.idx);
     const speed = speedOf(car);
-    const look = 7 + speed * 0.32;
+    const tune = PACE[this.spec.vehicle];
+    const look = tune.look[0] + speed * tune.look[1];
     const sNow = pts[this.idx].s;
     let t = this.idx;
     while (t < pts.length - 1 && pts[t].s - sNow < look) t++;
@@ -299,19 +431,23 @@ export class PacePilot implements Pilot {
     const fx = fwd.x / fl, fz = fwd.z / fl;
     const alpha = Math.atan2(fx * dz - fz * dx, fx * dx + fz * dz);
     const dist = Math.hypot(dx, dz) || 1;
-    const delta = Math.atan(2.8 * ((2 * Math.sin(alpha)) / dist));
-    const steer = clamp(delta / maxSteerAngle(vdot(car.vel, fwd)), -1, 1);
+    const delta = Math.atan(this.spec.wheelbase * ((2 * Math.sin(alpha)) / dist));
+    const steer = clamp(delta / maxSteerAngle(vdot(car.vel, fwd), this.spec), -1, 1);
 
     // The speed target a little ahead (reaction margin).
     let ahead = this.idx;
     while (ahead < pts.length - 1 && pts[ahead].s - sNow < 6 + speed * 0.12) ahead++;
     const over = speed - this.vTarget[ahead];
-    if (over <= 0) return { steer, gas: 1, brake: 0 };
+    if (over <= 0) {
+      if (this.nitro && nitroReady(car) && nitroFits(this.route, this.vTarget, this.idx, speed, car)) return { steer, gas: 1, brake: 0, nitro: true };
+      return { steer, gas: 1, brake: 0 };
+    }
     if (over < HOLD_BAND) return { steer, gas: 0.3, brake: 0 };
     // Braking ends at turn-in: the line shows red only where a full brake pedal (touch, keyboard) is
     // safe, and braking while steering in the drift range at speed starts a drift. The car's steering
-    // moves from where it is towards the input, so neither end may reach that range.
-    if (Math.max(Math.abs(steer), Math.abs(car.steer)) > BRAKE_STEER) return { steer, gas: 0, brake: 0 };
+    // moves from where it is towards the input, so neither end may reach that range. (A bike never
+    // drifts, so it may trail-brake further into the corner.)
+    if (Math.max(Math.abs(steer), Math.abs(car.steer)) > tune.brakeSteer) return { steer, gas: 0, brake: 0 };
     return { steer, gas: 0, brake: clamp(over / BRAKE_GAIN, 0, 1) };
   }
 }
@@ -333,10 +469,14 @@ export interface PaceTrace {
   steer: number[];
   /** 1 with at least two wheels down and not on the grass. */
   onRoad: number[];
+  /** 1 on ticks the nitro was on (traces from before the nitro have none). */
+  nitro?: number[];
   /** Horizontal lateral acceleration (m/s^2) from the change of velocity. */
   lat: number[];
   /** Finish time (ms). */
   time: number;
+  /** The vehicle class that drove it (default the car). */
+  vehicle?: VehicleClass;
 }
 
 export interface PaceDrive {
@@ -344,6 +484,28 @@ export interface PaceDrive {
   /** Racing ticks driven. */
   ticks: number;
   end: DriveEnd;
+  /** The car crashed on the way (hit a barrier, or nearly stopped where its plan was fast) but carried on. */
+  crashed?: boolean;
+  /** Nitros fired: with none, the same pilot without the nitro would drive the same lap tick for tick. */
+  nitros?: number;
+}
+
+/**
+ * Where a pace trace shows a crash: the first tick at which the car, with its wheels on the road for the
+ * last HIT_TICKS ticks, lost more than HIT_DROP m/s of horizontal speed over them (a barrier hit), or -1.
+ * drivePace checks this as it drives; tests check stored lines with it.
+ */
+export function paceHit(t: Pick<PaceTrace, 'x' | 'z' | 'onRoad'>): number {
+  for (let k = HIT_TICKS + 1; k < t.x.length; k++) if (hitAt(t, k)) return k;
+  return -1;
+}
+
+/** Whether tick k (at least HIT_TICKS + 1) of a pace trace ends a barrier hit (paceHit). */
+function hitAt(t: Pick<PaceTrace, 'x' | 'z' | 'onRoad'>, k: number): boolean {
+  for (let j = k - HIT_TICKS; j <= k; j++) if (t.onRoad[j] !== 1) return false;
+  // Horizontal speed from the positions (a tick's step), HIT_TICKS apart.
+  const vh = (j: number) => Math.hypot(t.x[j] - t.x[j - 1], t.z[j] - t.z[j - 1]) / DT;
+  return vh(k - HIT_TICKS) - vh(k) > HIT_DROP;
 }
 
 /** Tick budget for a pace drive on a route of this length: an 8 m/s average plus 10 s. */
@@ -362,10 +524,11 @@ export function* drivePace(
   pilot: Pilot,
   maxTicks = paceTickCap(pilot.route.length),
 ): Generator<void, PaceDrive> {
-  const race = new RaceSession(track);
+  const vehicle = pilot.spec?.vehicle ?? 'car';
+  const race = new RaceSession(track, DEFAULT_ASSISTS, vehicle);
   while (race.phase === 'countdown') race.step(NO_CONTROLS);
-  const t: PaceTrace = { x: [], y: [], z: [], v: [], gas: [], brake: [], steer: [], onRoad: [], lat: [], time: 0 };
-  const record = (ctl: Controls, lat: number) => {
+  const t: PaceTrace = { x: [], y: [], z: [], v: [], gas: [], brake: [], steer: [], onRoad: [], lat: [], nitro: [], time: 0, vehicle };
+  const record = (ctl: Controls, lat: number, nitro: number) => {
     const c = race.car;
     t.x.push(c.pos.x);
     t.y.push(c.pos.y);
@@ -376,55 +539,80 @@ export function* drivePace(
     t.steer.push(c.steer);
     t.onRoad.push(c.grounded >= 2 && !c.onGrass ? 1 : 0);
     t.lat.push(lat);
+    t.nitro!.push(nitro);
   };
-  record(NO_CONTROLS, 0);
+  record(NO_CONTROLS, 0, 0);
   const pts = pilot.route.points;
   let hint = -1;
   let best = -Infinity;
   let bestTick = 0;
+  let fast = false, crashed = false, nitros = 0;
   for (let n = 1; n <= maxTicks; n++) {
     const ctl = quantise(pilot.controls(race));
     const pvx = race.car.vel.x, pvz = race.car.vel.z;
+    const wasOn = race.car.nitroTime > 0;
     for (const e of race.step(ctl)) {
-      if (e.type === 'respawn' || e.type === 'missing') return { trace: null, ticks: n, end: e.type };
+      if (e.type === 'respawn' || e.type === 'missing') return { trace: null, ticks: n, end: e.type, nitros };
+      if (e.type === 'nitro') nitros++;
     }
     const c = race.car;
     const ax = (c.vel.x - pvx) / DT, az = (c.vel.z - pvz) / DT;
     const vh = Math.hypot(c.vel.x, c.vel.z);
-    record(ctl, vh > 1 ? Math.abs(ax * c.vel.z - az * c.vel.x) / vh : 0);
+    record(ctl, vh > 1 ? Math.abs(ax * c.vel.z - az * c.vel.x) / vh : 0, wasOn || c.nitroTime > 0 ? 1 : 0);
     if (race.phase === 'finished') {
       t.time = race.finishTime!;
-      return { trace: t, ticks: n, end: 'finished' };
+      return crashed ? { trace: t, ticks: n, end: 'finished', crashed, nitros } : { trace: t, ticks: n, end: 'finished', nitros };
     }
-    if (c.pos.y < -10) return { trace: null, ticks: n, end: 'fell' };
-    if (n % 100 === 0 && pts.length) {
+    if (vh > CRASH_FROM) fast = true;
+    if (c.pos.y < -10) return { trace: null, ticks: n, end: 'fell', nitros };
+    if (n > HIT_TICKS && hitAt(t, n)) crashed = true;
+    if (n % CRASH_EVERY === 0 && pts.length) {
       hint = nearestPoint(pilot.route, c.pos.x, c.pos.y, c.pos.z, hint);
+      if (fast && pilot.vTarget && speedOf(c) < CRASH_SHARE * Math.min(pilot.vTarget[hint], CRASH_CAP)) crashed = true;
+    }
+    if (n % 100 === 0 && pts.length) {
       const p = pts[hint];
-      if (c.onGrass && p.y - c.pos.y > 3) return { trace: null, ticks: n, end: 'fell' };
+      if (c.onGrass && p.y - c.pos.y > 3) return { trace: null, ticks: n, end: 'fell', nitros };
       if (p.s > best + 2) {
         best = p.s;
         bestTick = n;
-      } else if (n - bestTick >= STUCK_TICKS) return { trace: null, ticks: n, end: 'stuck' };
+      } else if (n - bestTick >= STUCK_TICKS) return { trace: null, ticks: n, end: 'stuck', nitros };
     }
     yield;
   }
-  return { trace: null, ticks: maxTicks, end: 'timeout' };
+  return { trace: null, ticks: maxTicks, end: 'timeout', nitros };
 }
 
 /**
  * The pace car's lap of a line and the pilot that drove it. Flying a crest can go wrong: the car is
  * in the air where the plan brakes and reaches the next turn-in too fast to brake there (A03), or it
- * lands badly on a custom track. A drive that ends in a respawn, a fall or stuck is tried once more
- * with the crests limited.
+ * lands badly on a custom track; so can a nitro or a pad that brings it somewhere faster than the plan's
+ * braking allows for, or braking the plan counted on where the car cannot brake that hard (over a crest,
+ * on a long turn-in). A drive that ends in a respawn, a fall or stuck, or that crashed on the way, is
+ * tried again with the crests limited, then without the nitro too, then with the cautious plan (with and
+ * without the nitro). A retry without the nitro is skipped when the try with it never fired one: it would
+ * drive the same lap tick for tick (time-sliced phone CPU for nothing). When every try failed there is no
+ * line (its trace is null): a line that runs into a barrier would teach the wrong braking points.
  */
-export function* paceRun(track: Track, line: Route): Generator<void, { pilot: PacePilot; run: PaceDrive }> {
-  let pilot = new PacePilot(line, yield* planSpeeds(line));
+export function* paceRun(
+  track: Track,
+  line: Route,
+  S: VehicleSpec,
+): Generator<void, { pilot: PacePilot; run: PaceDrive }> {
+  const retry = (r: PaceDrive) => r.end === 'respawn' || r.end === 'fell' || r.end === 'stuck' || r.crashed === true;
+  let pilot = new PacePilot(line, S, yield* planSpeeds(line, false, S));
   let run = yield* drivePace(track, pilot);
-  if (run.end === 'respawn' || run.end === 'fell' || run.end === 'stuck') {
-    pilot = new PacePilot(line, yield* planSpeeds(line, true));
-    run = yield* drivePace(track, pilot);
+  if (!retry(run)) return { pilot, run };
+  for (const cautious of [false, true]) {
+    const plan = yield* planSpeeds(line, true, S, cautious, cautious ? padPushes(track, line) : []);
+    for (const nitro of [true, false]) {
+      if (!nitro && run.nitros === 0) continue;
+      pilot = new PacePilot(line, S, plan, nitro);
+      run = yield* drivePace(track, pilot);
+      if (!retry(run)) return { pilot, run };
+    }
   }
-  return { pilot, run };
+  return { pilot, run: { ...run, trace: null } };
 }
 
 // ---- Sampling and phases ----------------------------------------------------
@@ -515,23 +703,27 @@ export function* traceOnCentre(t: PaceTrace, base: Route): Generator<void, { s: 
  * speed profile, not from the pilot's pedal chatter. Braking is a measured deceleration over
  * BRAKE_DECEL_MIN with the brake on (not a landing), and never where the car steered in the drift
  * range (a full brake pedal there starts a drift); a lift is less than full gas (or braking too light
- * to count); the rest is throttle.
+ * to count); the rest is throttle. Samples where the nitro was on for most of their ticks are Nitro
+ * (never over a brake zone: braking ends a push).
  */
 export function* sampleLine(t: PaceTrace, track: Track, base: Route): Generator<void, RacingLineData> {
+  const S = vehicleSpec(t.vehicle ?? 'car');
   const K = t.x.length;
   const n = sampleCount(base.length);
   const { s: sb, e: eb } = yield* traceOnCentre(t, base);
   // Pedal duties per sample: the ticks nearest to it.
-  const gasSum = new Float64Array(n), brakeSum = new Float64Array(n);
+  const gasSum = new Float64Array(n), brakeSum = new Float64Array(n), nitroSum = new Float64Array(n);
   const cnt = new Uint32Array(n), off = new Uint8Array(n);
-  // 1 where the car steered in the drift range: never a brake sample.
+  const tn = t.nitro;
+  // 1 where the car steered in the drift range: never a brake sample (a bike, which never drifts, may brake there).
   const steered = new Uint8Array(n);
-  const hard = (j: number) => Math.abs(t.steer[j]) > DRIFT_STEER;
+  const hard = (j: number) => S.brakeDrift && Math.abs(t.steer[j]) > DRIFT_STEER;
   for (let k = 0; k < K; k++) {
     const i = Math.round(sb[k] / LINE_STEP);
     if (i < 0 || i >= n) continue;
     gasSum[i] += t.gas[k];
     brakeSum[i] += t.brake[k];
+    if (tn) nitroSum[i] += tn[k];
     cnt[i]++;
     if (!t.onRoad[k]) off[i] = 1;
     if (hard(k)) steered[i] = 1;
@@ -540,7 +732,7 @@ export function* sampleLine(t: PaceTrace, track: Track, base: Route): Generator<
   const e = new Float32Array(n);
   const v = new Float64Array(n);
   const tick = new Float64Array(n);
-  const gas = new Float64Array(n), brk = new Float64Array(n);
+  const gas = new Float64Array(n), brk = new Float64Array(n), nos = new Float64Array(n);
   const driven = new Uint8Array(n);
   const visible = new Uint8Array(n);
   let k = 0;
@@ -558,6 +750,7 @@ export function* sampleLine(t: PaceTrace, track: Track, base: Route): Generator<
     tick[i] = k + f;
     gas[i] = cnt[i] ? gasSum[i] / cnt[i] : t.gas[k];
     brk[i] = cnt[i] ? brakeSum[i] / cnt[i] : t.brake[k];
+    nos[i] = !tn ? 0 : cnt[i] ? nitroSum[i] / cnt[i] : tn[k];
     visible[i] = !off[i] && t.onRoad[k] && t.onRoad[k + 1] ? 1 : 0;
     if (hard(k) || hard(k + 1)) steered[i] = 1;
   }
@@ -573,12 +766,13 @@ export function* sampleLine(t: PaceTrace, track: Track, base: Route): Generator<
     while (!driven[i1]) i1--;
     const dt = (tick[i1] - tick[i0]) * DT;
     const a = dt > 0 ? (v[i1] - v[i0]) / dt : 0;
-    level[i] = clamp(-a / maxBrakeDecel(v[i]), 0, 1);
+    level[i] = clamp(-a / maxBrakeDecel(v[i], S), 0, 1);
     if (a < -BRAKE_DECEL_MIN && brk[i] > 0 && !steered[i]) raw[i] = Phase.Brake;
     else raw[i] = gas[i] < GAS_FULL || brk[i] > 0 ? Phase.Lift : Phase.Throttle;
   }
   yield;
   const phase = smoothPhases(raw, steered);
+  for (let i = 0; i < n; i++) if (nos[i] >= 0.5 && phase[i] !== Phase.Brake) phase[i] = Phase.Nitro;
   yield;
   const brake = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -681,24 +875,28 @@ export function lineable(track: Track, base: Route): boolean {
   return track.gates.every((g) => g.kind !== 'checkpoint' || on.has(g.block));
 }
 
-/** Computes a track's racing line, or null when it has none (time-sliced; see LineJobs). */
-export function* paceLineJob(track: Track): Generator<void, RacingLineData | null> {
+/** Computes a track's racing line for a vehicle class, or null when it has none (time-sliced; see LineJobs). */
+export function* paceLineJob(track: Track, vehicle: VehicleClass = 'car'): Generator<void, RacingLineData | null> {
+  const S = vehicleSpec(vehicle);
   const base = traceRoute(track);
   if (!lineable(track, base)) return null;
   yield;
-  const limits = lateralLimits(track, base);
+  const limits = lateralLimits(track, base, lineHalfWidth(S));
   yield;
   const e = yield* minCurvatureOffsets(base.points, limits);
   const line = offsetRoute(base, e);
   yield;
-  const { run } = yield* paceRun(track, line);
+  const { run } = yield* paceRun(track, line, S);
   if (!run.trace) return null;
   return yield* sampleLine(run.trace, track, base);
 }
 
 // ---- Precomputed lines ------------------------------------------------------
 
-/** One stored line: two bytes per sample (offset in 0.1 m; phase, visible and brake bits), base64. */
+/**
+ * One stored line: two bytes per sample (offset in 0.1 m; phase in bits 0-1, visible in bit 2, brake
+ * strength in bits 3-6), base64.
+ */
 export interface StoredLine {
   /** Centre-line length (m, 0.1 m), to catch a changed layout. */
   len: number;
@@ -707,16 +905,36 @@ export interface StoredLine {
   data: string;
 }
 
+/** One class's lines, tagged with the VEHICLE_REV they were driven with. */
+export interface StoredClassLines {
+  rev: number;
+  lines: Record<string, StoredLine>;
+}
+
+/** racingLines.json: the car's lines at the top level (their pre-class shape), the other classes in sections. */
 export interface StoredLines {
   physics: number;
   lines: Record<string, StoredLine>;
+  bike?: StoredClassLines;
+  truck?: StoredClassLines;
 }
 
 const table = racingLines as StoredLines;
 
-/** The precomputed line for a campaign track id, or null when there is none for this PHYSICS_VERSION. */
-export function storedLine(id: string): StoredLine | null {
-  return table.physics === PHYSICS_VERSION ? (table.lines[id] ?? null) : null;
+/** A class's section of a lines table, or null when it is missing or for another revision. */
+export function classLines(t: StoredLines, vehicle: VehicleClass): Record<string, StoredLine> | null {
+  if (vehicle === 'car') return t.lines;
+  const sec = t[vehicle];
+  return sec && sec.rev === VEHICLE_REV[vehicle] ? sec.lines : null;
+}
+
+/**
+ * The precomputed line for a campaign track id and vehicle class, or null when there is none for this
+ * PHYSICS_VERSION and the class's VEHICLE_REV.
+ */
+export function storedLine(id: string, vehicle: VehicleClass = 'car'): StoredLine | null {
+  if (table.physics !== PHYSICS_VERSION) return null;
+  return classLines(table, vehicle)?.[id] ?? null;
 }
 
 export function encodeLine(d: RacingLineData, routeLength: number): StoredLine {
@@ -752,9 +970,9 @@ export function* decodeLine(track: Track, st: StoredLine): Generator<void, Racin
     const q = bin.charCodeAt(2 * i);
     const f = bin.charCodeAt(2 * i + 1);
     d.e[i] = (q > 127 ? q - 256 : q) / 10;
-    d.phase[i] = Math.min(f & 3, Phase.Brake);
+    d.phase[i] = f & 3;
     d.visible[i] = (f >> 2) & 1;
-    d.brake[i] = (f >> 3) / 15;
+    d.brake[i] = ((f >> 3) & 15) / 15;
   }
   yield;
   yield* placeSamples(track, base, d.e, d, null);
@@ -762,16 +980,32 @@ export function* decodeLine(track: Track, st: StoredLine): Generator<void, Racin
 }
 
 /**
- * The line job for a race entry key: the stored line for a campaign key ('c:A01') when it fits this
- * physics and layout, else the pace job.
+ * The parts of a race entry key (core/vehicles entryKey: 'c:A01', 'c:A01@bike', 'u:3f9k|w', ...): the
+ * track's own key, the vehicle class and the wall mode. A digit after the class (a revision) is allowed.
+ */
+export function parseEntryKey(key: string): { base: string; vehicle: VehicleClass; walls: boolean } {
+  const walls = key.endsWith('|w');
+  const k = walls ? key.slice(0, -2) : key;
+  const at = k.lastIndexOf('@');
+  const cls = at > 0 ? k.slice(at + 1).replace(/\d+$/, '') : '';
+  return isVehicleClass(cls) ? { base: k.slice(0, at), vehicle: cls, walls } : { base: k, vehicle: 'car', walls };
+}
+
+/**
+ * The line job for a race entry key: the stored line of its vehicle class for a campaign key ('c:A01',
+ * 'c:A01@bike') when it fits this physics and layout, else the pace job for that class. Lines are open-road
+ * lines in both wall modes: a pace lap must not lean on a barrier only Walls on all roads adds (A03's pace
+ * lap is 0.64 s faster when one catches its crest landing), so a walled track is driven without them.
  */
 export function* lineJob(key: string, track: Track): Generator<void, RacingLineData | null> {
-  const st = key.startsWith('c:') ? storedLine(key.slice(2)) : null;
+  const { base, vehicle } = parseEntryKey(key);
+  const open = track.walls ? new Track(track.data) : track;
+  const st = base.startsWith('c:') ? storedLine(base.slice(2), vehicle) : null;
   if (st) {
-    const d = yield* decodeLine(track, st);
+    const d = yield* decodeLine(open, st);
     if (d) return d;
   }
-  return yield* paceLineJob(track);
+  return yield* paceLineJob(open, vehicle);
 }
 
 // ---- Lookups and colours ----------------------------------------------------
@@ -824,18 +1058,20 @@ const THROTTLE_RGB = [0.18, 0.83, 0.35];
 const LIFT_RGB = [1.0, 0.76, 0.1];
 const BRAKE_LIGHT_RGB = [1.0, 0.48, 0.1];
 const BRAKE_HARD_RGB = [1.0, 0.16, 0.12];
+/** The nitro's violet (its flames and button). */
+export const NITRO_RGB = [0.62, 0.42, 1.0];
 
 /**
- * RGB per sample: green throttle, yellow lift, orange to red by braking strength, blurred over +-2
- * samples so changes are short gradients. `liftAsThrottle` paints lifts green, for auto-accelerate,
- * which cannot lift.
+ * RGB per sample: green throttle, violet nitro, yellow lift, orange to red by braking strength, blurred
+ * over +-2 samples so changes are short gradients. `liftAsThrottle` paints lifts green, for
+ * auto-accelerate, which cannot lift.
  */
 export function lineColors(d: RacingLineData, liftAsThrottle = false): Float32Array {
   const n = d.phase.length;
   const raw = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     const p = d.phase[i];
-    let c = p === Phase.Lift && !liftAsThrottle ? LIFT_RGB : THROTTLE_RGB;
+    let c = p === Phase.Nitro ? NITRO_RGB : p === Phase.Lift && !liftAsThrottle ? LIFT_RGB : THROTTLE_RGB;
     if (p === Phase.Brake) {
       const t = clamp((d.brake[i] - 0.3) / 0.5, 0, 1);
       c = [0, 1, 2].map((k) => BRAKE_LIGHT_RGB[k] + (BRAKE_HARD_RGB[k] - BRAKE_LIGHT_RGB[k]) * t);

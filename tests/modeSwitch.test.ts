@@ -2,8 +2,16 @@
 // with no HUD or touch controls because the old RaceMode's exit() ran after the new one showed
 // them). App itself needs the DOM and WebGL, so the method is called with a stand-in `this`.
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App, type Mode } from '../src/app/app';
+import { toast } from '../src/ui/dom';
+
+vi.mock('../src/ui/dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ui/dom')>()),
+  toast: vi.fn(),
+}));
+
+afterEach(() => vi.mocked(toast).mockClear());
 
 type Holder = { mode: Mode | null };
 const noop: Mode = { update() {}, exit() {} };
@@ -60,5 +68,116 @@ describe('App.setMode', () => {
     setMode(fake, () => named('race2')); // "Next track": a RaceMode replacing a RaceMode
     setMode(fake, () => named('menu'));
     expect(exits).toEqual(['race1', 'race2']);
+  });
+});
+
+// A race start may wait for an interstitial and for the realistic model to load. It must not start twice
+// from a double tap, nor from a screen the player has left meanwhile (Android Back), and it must start
+// with the classic vehicle when the model cannot be loaded.
+describe('App.playRace', () => {
+  type Fake = {
+    ads: { busy: boolean; interstitial: () => Promise<void> };
+    audio: { unlock: () => void };
+    mode: Mode | null;
+    store: { profile: { models: Record<string, string> } };
+    startRace: ReturnType<typeof vi.fn>;
+    waitForModel: (v: string) => Promise<boolean>;
+  };
+  const entry = { vehicle: 'car' } as never;
+  let screen: object = {};
+
+  function fake(wait: () => Promise<boolean>): Fake {
+    vi.stubGlobal('document', { querySelector: () => screen });
+    return {
+      ads: { busy: false, interstitial: () => Promise.resolve() },
+      audio: { unlock() {} },
+      mode: noop,
+      store: { profile: { models: { car: 'sport' } } },
+      startRace: vi.fn(),
+      waitForModel: wait,
+    };
+  }
+  const play = (f: Fake) => App.prototype.playRace.call(f as unknown as App, entry);
+
+  it('starts once the model is ready, and ignores a second tap meanwhile', async () => {
+    let done!: () => void;
+    const f = fake(() => new Promise<boolean>((r) => (done = () => r(true))));
+    const first = play(f);
+    const second = play(f);
+    done();
+    await Promise.all([first, second]);
+    expect(f.startRace).toHaveBeenCalledTimes(1);
+    // And the next tap starts again.
+    f.waitForModel = () => Promise.resolve(true);
+    await play(f);
+    expect(f.startRace).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
+  it('starts nothing when the player went back while it loaded', async () => {
+    let done!: () => void;
+    const f = fake(() => new Promise<boolean>((r) => (done = () => r(true))));
+    const p = play(f);
+    // Back: the previous menu replaced the screen.
+    screen = {};
+    done();
+    await p;
+    expect(f.startRace).not.toHaveBeenCalled();
+    // And a new tap works again (the model is ready now).
+    f.waitForModel = () => Promise.resolve(true);
+    await play(f);
+    expect(f.startRace).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('after Back during "Loading vehicle...", a start from the new screen is not blocked, and the stale one ends quietly', async () => {
+    let fail!: () => void;
+    const f = fake(() => new Promise<boolean>((r) => (fail = () => r(false))));
+    const stale = play(f);
+    screen = {}; // Back to the menu while the model loads
+    f.waitForModel = () => Promise.resolve(true);
+    await play(f);
+    expect(f.startRace).toHaveBeenCalledTimes(1);
+    // The old load gives up later: no race from the screen that was left, and no "could not be loaded" toast.
+    fail();
+    await stale;
+    expect(f.startRace).toHaveBeenCalledTimes(1);
+    expect(toast).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('says the model could not be loaded only for a start still on screen, and races the classic one', async () => {
+    const f = fake(() => Promise.resolve(false));
+    await play(f);
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining('could not be loaded'), 3000);
+    expect(f.startRace).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('starts nothing when the mode changed while it loaded', async () => {
+    let done!: () => void;
+    const f = fake(() => new Promise<boolean>((r) => (done = () => r(true))));
+    const p = play(f);
+    f.mode = { update() {}, exit() {} };
+    done();
+    await p;
+    expect(f.startRace).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('realistic model loading', () => {
+  it('resolves "not ready" when a model cannot be loaded, so the race goes ahead with the classic vehicle', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cache = await import('../src/render/modelCache');
+    // No renderer yet: nothing loads.
+    expect(await cache.ensureModel('coupe', 50)).toBe(false);
+    // A renderer the KTX2 loader cannot use (as a decode failure or a missing file would): the load fails.
+    cache.setModelRenderer({} as never);
+    expect(await cache.ensureModel('coupe', 5000)).toBe(false);
+    expect(cache.readyModel('coupe')).toBeNull();
+    // Not retried in this session.
+    expect(await cache.loadModel('coupe')).toBeNull();
+    warn.mockRestore();
   });
 });

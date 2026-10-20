@@ -1,5 +1,6 @@
 // A single time-attack run: countdown, timing at the fixed tick rate, checkpoints in any
-// order, flying respawn at the last checkpoint (also automatic after 3 s flipped), finish
+// order, flying respawn at the last checkpoint (also automatic after 3 s flipped), the nitro's
+// race rules (a press in the countdown fires at GO; a respawn never refills it), finish
 // validation and ghost recording.
 
 import { DT, TICK_HZ, WALL_OFF } from '../core/constants';
@@ -7,16 +8,19 @@ import {
   cloneCar,
   createCar,
   forwardOf,
+  NITRO_RECHARGE,
   speedOf,
   stepCar,
   triggerBoost,
   upOf,
+  vehicleSpec,
   DEFAULT_ASSISTS,
   type Assists,
   type CarState,
   type Controls,
 } from '../physics/vehicle';
 import { qfromYawDir } from '../core/vec';
+import type { VehicleClass } from '../core/vehicles';
 import type { PlacedBlock, Track } from '../track/track';
 import { GhostRecorder, type Ghost } from './ghost';
 
@@ -43,6 +47,9 @@ export function nextFlipTicks(ticks: number, upY: number, speed: number): number
 }
 const GATE_S = 16;
 const FINISH_BRAKE: Controls = { steer: 0, gas: 0, brake: 1 };
+/** Racing ticks a countdown nitro press waits for the brake to lift (0.5 s), and the pedal travel that counts as up (stepCar's). */
+const NITRO_ARM_HOLD = 50;
+const NITRO_BRAKE_EPS = 0.01;
 
 export type RacePhase = 'countdown' | 'racing' | 'finished';
 
@@ -54,7 +61,22 @@ export type RaceEvent =
   | { type: 'missing'; remaining: number }
   | { type: 'pad'; kind: 'boost' | 'turbo' }
   | { type: 'respawn'; auto: boolean }
-  | { type: 'impact'; speed: number };
+  | { type: 'impact'; speed: number }
+  /** The nitro fired on this tick. */
+  | { type: 'nitro' }
+  /** The nitro has recharged and can fire again. */
+  | { type: 'nitroReady' };
+
+/** Numbers per racing tick in RaceSession.inputs: steer (-127..127), gas (0..255), brake (0..255), nitro (0/1). */
+export const INPUT_STRIDE = 4;
+
+/** The controls of racing tick `tick` in an input log (RaceSession.inputs), as the race applied them. */
+export function loggedControls(inputs: readonly number[], tick: number): Controls {
+  const k = tick * INPUT_STRIDE;
+  const c: Controls = { steer: inputs[k] / 127, gas: inputs[k + 1] / 255, brake: inputs[k + 2] / 255 };
+  if (inputs[k + 3] === 1) c.nitro = true;
+  return c;
+}
 
 export class RaceSession {
   car!: CarState;
@@ -72,7 +94,11 @@ export class RaceSession {
   private checkpointState: CarState | null = null;
   private lastPad: PlacedBlock | null = null;
   private readonly recorder = new GhostRecorder();
-  /** Packed per-tick inputs since GO: steer (-127..127), gas (0..255), brake (0..255). */
+  /** A nitro press during the countdown: it fires on the first racing tick with the brake up (NITRO_ARM_HOLD). */
+  private nitroArmed = false;
+  /** Nitros fired this run. */
+  nitroUses = 0;
+  /** Packed per-tick inputs since GO, INPUT_STRIDE numbers each (read them with loggedControls). */
   inputs: number[] = [];
   ghost: Ghost | null = null;
 
@@ -83,12 +109,14 @@ export class RaceSession {
   constructor(
     readonly track: Track,
     public assists: Readonly<Assists> = DEFAULT_ASSISTS,
+    /** Vehicle class for this session (its own handling, records and author times). */
+    readonly vehicle: VehicleClass = 'car',
   ) {
     this.restart();
   }
 
   restart(): void {
-    this.car = createCar(this.track);
+    this.car = createCar(this.track, this.vehicle);
     this.phase = 'countdown';
     this.clock = 0;
     this.ticks = 0;
@@ -99,6 +127,8 @@ export class RaceSession {
     this.flipTicks = 0;
     this.checkpointState = null;
     this.lastPad = null;
+    this.nitroArmed = false;
+    this.nitroUses = 0;
     this.inputs = [];
     this.ghost = null;
     this.recorder.reset();
@@ -126,7 +156,12 @@ export class RaceSession {
       this.restart();
       return [{ type: 'respawn', auto }];
     }
+    const was = this.car;
     this.car = cloneCar(this.checkpointState);
+    // The nitro is not restored with the checkpoint: a running push stops and recharges from now, and a
+    // recharge in progress carries on, so a respawn never refills it.
+    this.car.nitroTime = 0;
+    this.car.nitroCooldown = was.nitroTime > 0 ? NITRO_RECHARGE : was.nitroCooldown;
     this.lastPad = null;
     this.respawns++;
     return [{ type: 'respawn', auto }];
@@ -135,6 +170,7 @@ export class RaceSession {
   step(input: Controls): RaceEvent[] {
     const events: RaceEvent[] = [];
     if (this.phase === 'countdown') {
+      if (input.nitro) this.nitroArmed = true;
       if (this.clock % 50 === 0) events.push({ type: 'countdown', n: 3 - this.clock / 50 });
       this.clock++;
       if (this.clock >= COUNTDOWN_TICKS) {
@@ -145,19 +181,31 @@ export class RaceSession {
       return events;
     }
 
-    // After the finish line the car brakes to a stop on its own.
-    const ctl = this.phase === 'racing' ? input : FINISH_BRAKE;
+    // After the finish line the car brakes to a stop on its own (which also ends a nitro push).
+    let ctl = this.phase === 'racing' ? input : FINISH_BRAKE;
     if (this.phase === 'racing') {
+      if (this.nitroArmed) {
+        // The press waits while the brake is down (it cannot fire then: a thumb resting on the brake bar at
+        // GO, a trigger held), for up to NITRO_ARM_HOLD ticks, so the armed nitro is not lost quietly.
+        ctl = { ...ctl, nitro: true };
+        if (quantise(ctl).brake < NITRO_BRAKE_EPS || this.ticks >= NITRO_ARM_HOLD) this.nitroArmed = false;
+      }
       this.inputs.push(
         Math.round(ctl.steer * 127),
         Math.round(ctl.gas * 255),
         Math.round(ctl.brake * 255),
+        ctl.nitro ? 1 : 0,
       );
     }
     const prev = { x: this.car.pos.x, y: this.car.pos.y, z: this.car.pos.z };
+    const busy = this.car.nitroTime > 0 || this.car.nitroCooldown > 0;
     const ev = stepCar(this.car, quantise(ctl), this.track, this.assists);
     if (ev.impact > 6) events.push({ type: 'impact', speed: ev.impact });
     if (this.phase !== 'racing') return events;
+    if (!busy && this.car.nitroTime > 0) {
+      this.nitroUses++;
+      events.push({ type: 'nitro' });
+    } else if (busy && this.car.nitroTime === 0 && this.car.nitroCooldown === 0) events.push({ type: 'nitroReady' });
 
     this.ticks++;
     this.recorder.record(this.ticks, this.car);
@@ -205,7 +253,7 @@ export class RaceSession {
         }
         this.phase = 'finished';
         this.finishTime = this.timeMs;
-        this.ghost = this.recorder.finish(this.finishTime, this.cpTimes);
+        this.ghost = this.recorder.finish(this.finishTime, this.cpTimes, this.vehicle);
         events.push({ type: 'finish', time: this.finishTime });
         return;
       }
@@ -245,7 +293,8 @@ export class RaceSession {
 
 /**
  * Flying respawn state saved at a checkpoint: same place and speed, but always upright
- * and pointing down the road so a messy crossing can't trap the player.
+ * and pointing down the road so a messy crossing can't trap the player. The body sits a
+ * little above its settled ride height (VehicleSpec.respawnY: 0.9 m for the car).
  */
 function respawnState(car: CarState, gate: PlacedBlock): CarState {
   const c = cloneCar(car);
@@ -255,7 +304,7 @@ function respawnState(car: CarState, gate: PlacedBlock): CarState {
   const l = gate.toLocal(car.pos.x, car.pos.z);
   const a = Math.max(-WALL_OFF + 2, Math.min(WALL_OFF - 2, l.a));
   const p = gate.toWorld(a, l.b);
-  c.pos = { x: p.x, y: gate.baseY + 0.9, z: p.z };
+  c.pos = { x: p.x, y: gate.baseY + vehicleSpec(car.vehicle).respawnY, z: p.z };
   // Keep the car's own heading if it is roughly aligned with the road, otherwise use the road's.
   c.rot = along > 0.7 && Math.abs(f.y) < 0.5 ? qfromYawDir(f.x, f.z) : qfromYawDir(gate.fx, gate.fz);
   const nf = forwardOf(c);
@@ -271,11 +320,13 @@ function respawnState(car: CarState, gate: PlacedBlock): CarState {
 
 /** Inputs are quantised to what the input log can store so replays re-simulate exactly. */
 export function quantise(c: Controls): Controls {
-  return {
+  const q: Controls = {
     steer: Math.round(c.steer * 127) / 127,
     gas: Math.round(c.gas * 255) / 255,
     brake: Math.round(c.brake * 255) / 255,
   };
+  if (c.nitro) q.nitro = true;
+  return q;
 }
 
 export function formatTime(ms: number | null | undefined, signed = false): string {

@@ -1,9 +1,12 @@
 // Procedural race cars (original designs). Local frame: +z forward, +y up, +x left.
 // Body styles are visual only: every body shares the wheels, pivots and flame count, so
 // physics, ghosts and the suspension animation in CarView never depend on the choice.
+// The materials, part helpers and the per-material shell templates here are shared with the
+// bike and the truck (bikeMesh.ts, truckMesh.ts), so every vehicle uses the same shader programs.
 
 import * as THREE from 'three';
 import { DEFAULT_CAR_BODY, isCarBody, type CarBody } from '../core/cars';
+import type { VehicleClass } from '../core/vehicles';
 import { WHEEL_ANCHORS, WHEEL_RADIUS } from '../physics/vehicle';
 import {
   extrudeX,
@@ -32,19 +35,52 @@ export interface CarLight {
 }
 
 export interface CarVisual {
-  readonly body: CarBody;
+  /** Vehicle class drawn. */
+  readonly vehicle: VehicleClass;
+  /** Car body style; null for the bike, the truck and a realistic model. */
+  readonly body: CarBody | null;
   root: THREE.Group;
+  /** The group the lamps are drawn in: CarView hangs the lamp glow here, so it leans and rolls with them. */
+  readonly lamps: THREE.Object3D;
+  /** Drawn wheels: each spins about its local x inside its pivot. */
   wheels: THREE.Object3D[];
-  /** Front wheel steering pivots. */
+  /** Wheel pivots, the wheels' parents: CarView sets their height (suspension) and, on steered wheels, their yaw. */
   pivots: THREE.Object3D[];
+  /**
+   * Radius of each drawn wheel (a realistic model's own tyres): CarView stands it on its ray by this radius and
+   * spins it by it. Absent: the class's physics wheel radius (every procedural vehicle).
+   */
+  readonly wheelR?: readonly number[];
+  /** Physics wheels (FL, FR, RL, RR) behind each drawn wheel: a drawn wheel rides at their mean compression. */
+  readonly wheelSrc: readonly (readonly number[])[];
+  /** Drawn wheels that steer. */
+  readonly steered: readonly boolean[];
+  /** Drawn steering angle per physics steering angle (the bike's short drawn wheelbase needs less lock). */
+  readonly steerScale: number;
+  /**
+   * Highest the drawn wheels rise above their settled height (m): the bodywork clears them up to it, and
+   * CarView stops them there, so a harder compression (a landing, a crest) sinks the tyre into the road
+   * rather than into the cab or the fairing. Infinity: the car's open wheels follow the springs all the way.
+   */
+  readonly maxRise: number;
+  /** The realistic model drawn (vehicleModels.ts), or null for a procedural vehicle. */
+  readonly model?: string | null;
+  /** Bike: leans about the ground line under its centre (rotation.z; visual only). */
+  readonly lean: THREE.Object3D | null;
+  /** Truck: the body rolls on its springs about the axle line (rotation.z; visual only). */
+  readonly roll: THREE.Object3D | null;
+  /** Highest point of the body above the centre at rest (m): the photo badge floats clear of it. */
+  readonly top: number;
   flames: THREE.Mesh[];
-  /** Head and tail lamps (none on a ghost). */
+  /** Head and tail lamps (none on a ghost), in the frame of `lamps`. */
   readonly lights: readonly CarLight[];
+  /** Linkages that follow the posed wheels (the bike's fork, bars and swingarm); CarView calls it after posing them. */
+  update?(): void;
   setColor(hex: string): void;
   dispose(): void;
 }
 
-interface CarMats {
+export interface CarMats {
   paint: THREE.MeshStandardMaterial;
   /** Carbon and trim: wings, floors, cages. */
   dark: THREE.MeshStandardMaterial;
@@ -73,7 +109,8 @@ interface BodySpec {
 /** Adds the body meshes (lights only when the lamp materials exist) and describes the rest. */
 type BodyBuilder = (body: THREE.Group, m: CarMats) => BodySpec;
 
-function makeMats(color: string, ghost: boolean): CarMats {
+/** One car's materials: a ghost's are translucent, write no depth and have no lamps or flames. */
+export function makeMats(color: string, ghost: boolean): CarMats {
   return {
     paint: new THREE.MeshStandardMaterial({
       color,
@@ -140,21 +177,21 @@ function makeMats(color: string, ghost: boolean): CarMats {
 const FZ = WHEEL_ANCHORS[0].z;
 const RZ = WHEEL_ANCHORS[2].z;
 
-function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
+export function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
   const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y, z);
   return m;
 }
 
 /** A left-side part (+x) and its mirror image on the right (the merge restores the mirror's winding). */
-function pair(body: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material): void {
+export function pair(body: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material): void {
   const right = mesh(geo.clone(), mat);
   right.scale.x = -1;
   body.add(mesh(geo, mat), right);
 }
 
 /** Same stations as `secs`, raised a little and narrowed: a stripe that follows the surface. */
-function stripe(secs: readonly LoftSection[], hw: number, x = 0): THREE.BufferGeometry {
+export function stripe(secs: readonly LoftSection[], hw: number, x = 0): THREE.BufferGeometry {
   return loftGeometry(
     secs.map((s) => ({ z: s.z, hw, x, top: s.top + 0.01, bottom: s.top - 0.03, n: 6 })),
     12,
@@ -162,7 +199,7 @@ function stripe(secs: readonly LoftSection[], hw: number, x = 0): THREE.BufferGe
 }
 
 /** Round lamp facing forward: lens in the lamp material with a bezel behind it. */
-function roundLamp(body: THREE.Group, lens: THREE.Material, bezel: THREE.Material, x: number, y: number, z: number, r: number): void {
+export function roundLamp(body: THREE.Group, lens: THREE.Material, bezel: THREE.Material, x: number, y: number, z: number, r: number): void {
   const b = mesh(new THREE.CylinderGeometry(r * 1.2, r * 1.2, 0.06, 16), bezel, x, y, z - 0.02);
   b.rotation.x = Math.PI / 2;
   const l = mesh(new THREE.CylinderGeometry(r, r, 0.03, 16), lens, x, y, z + 0.005);
@@ -171,7 +208,7 @@ function roundLamp(body: THREE.Group, lens: THREE.Material, bezel: THREE.Materia
 }
 
 /** Exhaust tip pointing back (-z): a pipe with a dark bore, ending at z - 0.07. */
-function exhaustTip(body: THREE.Group, pipe: THREE.Material, bore: THREE.Material, x: number, y: number, z: number, r: number): void {
+export function exhaustTip(body: THREE.Group, pipe: THREE.Material, bore: THREE.Material, x: number, y: number, z: number, r: number): void {
   const p = mesh(new THREE.CylinderGeometry(r, r, 0.14, 14), pipe, x, y, z);
   p.rotation.x = Math.PI / 2;
   const b = mesh(new THREE.CylinderGeometry(r * 0.7, r * 0.7, 0.02, 12), bore, x, y, z - 0.062);
@@ -179,9 +216,9 @@ function exhaustTip(body: THREE.Group, pipe: THREE.Material, bore: THREE.Materia
   body.add(p, b);
 }
 
-/** Helmet with a tinted visor band facing +z. */
-function driver(body: THREE.Group, m: CarMats, x: number, y: number, z: number, r: number): void {
-  body.add(mesh(new THREE.SphereGeometry(r, 16, 12), m.accent, x, y, z));
+/** Helmet (white unless `shell` is given) with a tinted visor band facing +z. */
+export function driver(body: THREE.Group, m: CarMats, x: number, y: number, z: number, r: number, shell: THREE.Material = m.accent): void {
+  body.add(mesh(new THREE.SphereGeometry(r, 16, 12), shell, x, y, z));
   body.add(mesh(new THREE.SphereGeometry(r * 1.04, 14, 4, Math.PI / 2 - 0.85, 1.7, 1.2, 0.42), m.glass, x, y, z));
 }
 
@@ -699,16 +736,55 @@ const BODY_BUILDERS: Record<CarBody, BodyBuilder> = {
 /** Front and rear tyre widths. */
 const TYRE_W = [0.42, 0.52];
 
-type Slot = Exclude<keyof CarMats, 'flame'>;
+/** Material slots a template part can use (flames are never merged). */
+export type Slot = Exclude<keyof CarMats, 'flame'>;
+
+/** One merged template geometry and the material slot it is drawn with. */
+export interface ShellPart {
+  slot: Slot;
+  geo: THREE.BufferGeometry;
+}
 
 /** A body built and merged once: one geometry per material slot, cloned for every car. */
 interface ShellTemplate {
-  parts: { slot: Slot; geo: THREE.BufferGeometry }[];
+  parts: ShellPart[];
   spec: BodySpec;
 }
 
 const shells = new Map<string, ShellTemplate>();
-const wheelGeos = new Map<string, THREE.BufferGeometry>();
+const geoCache = new Map<string, THREE.BufferGeometry>();
+
+/**
+ * Merge the meshes built into `g` with the template materials `m` into one part per material, in
+ * order of first appearance. The caller disposes `m` (template materials are never drawn).
+ */
+export function templateParts(g: THREE.Group, m: CarMats): ShellPart[] {
+  mergeByMaterial(g);
+  const slots = Object.entries(m) as [keyof CarMats, THREE.Material | null][];
+  return g.children.map((o) => {
+    const part = o as THREE.Mesh;
+    return { slot: slots.find(([, mat]) => mat === part.material)![0] as Slot, geo: part.geometry };
+  });
+}
+
+/**
+ * One draw call per material; everything but the lamps casts a shadow. Each vehicle owns copies of
+ * the template geometry, so disposing one never touches another.
+ */
+export function addParts(into: THREE.Object3D, parts: readonly ShellPart[], m: CarMats, ghost: boolean): void {
+  for (const { slot, geo } of parts) {
+    const part = new THREE.Mesh(geo.clone(), m[slot]!);
+    part.castShadow = !ghost && slot !== 'head' && slot !== 'tail';
+    into.add(part);
+  }
+}
+
+/** Builds a geometry once per key (templates: callers clone it). */
+export function cachedGeometry(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  let g = geoCache.get(key);
+  if (!g) geoCache.set(key, (g = make()));
+  return g;
+}
 
 /** The merged shell of a body (ghosts have no lamps, so they get their own), built on first use. */
 function shellTemplate(kind: CarBody, ghost: boolean): ShellTemplate {
@@ -718,23 +794,82 @@ function shellTemplate(kind: CarBody, ghost: boolean): ShellTemplate {
   const m = makeMats('#ffffff', ghost);
   const g = new THREE.Group();
   const spec = BODY_BUILDERS[kind](g, m);
-  mergeByMaterial(g);
-  const slots = Object.entries(m) as [keyof CarMats, THREE.Material | null][];
-  const parts = g.children.map((o) => {
-    const part = o as THREE.Mesh;
-    return { slot: slots.find(([, mat]) => mat === part.material)![0] as Slot, geo: part.geometry };
-  });
+  const parts = templateParts(g, m);
   for (const mat of Object.values(m)) mat?.dispose();
   shells.set(key, (t = { parts, spec }));
   return t;
 }
 
-function wheelGeometry(kind: 'tyre' | 'rim', w: number, band?: number): THREE.BufferGeometry {
-  const key = `${kind}:${w}:${band ?? ''}`;
-  let g = wheelGeos.get(key);
-  if (!g) wheelGeos.set(key, (g = kind === 'tyre' ? tyreGeometry(w, WHEEL_RADIUS, band) : rimGeometry(w)));
-  return g;
+/** Shared tyre (optionally banded) or rim of width w and radius R; rims have `spokes` spokes. */
+export function wheelGeometry(kind: 'tyre' | 'rim', w: number, band?: number, R = WHEEL_RADIUS, spokes = 5): THREE.BufferGeometry {
+  return cachedGeometry(`${kind}:${w}:${band ?? ''}:${R}:${spokes}`, () =>
+    kind === 'tyre' ? tyreGeometry(w, R, band) : rimGeometry(w, R, spokes),
+  );
 }
+
+/** Length of a modelled flame cone (m): its wide base sits at the pipe, its tip points away. */
+export const FLAME_LEN = 0.9;
+
+/** A flame's unscaled centre and the way its tip points, in its parent's frame (stretchFlame grows it from there). */
+interface FlameRest {
+  centre: THREE.Vector3;
+  tip: THREE.Vector3;
+}
+
+/**
+ * Hidden exhaust flames (CarView stretches and shows them on a boost) at the given centres, pointing
+ * back, or up for the truck's stacks. None on a ghost.
+ */
+export function addFlames(into: THREE.Object3D, m: CarMats, centres: readonly Vec3[], up = false, r = 0.13): THREE.Mesh[] {
+  const flames: THREE.Mesh[] = [];
+  if (!m.flame) return flames;
+  for (const e of centres) {
+    const f = new THREE.Mesh(new THREE.ConeGeometry(r, FLAME_LEN, 10), m.flame);
+    if (!up) f.rotation.x = -Math.PI / 2;
+    f.position.set(e[0], e[1], e[2]);
+    const rest: FlameRest = { centre: f.position.clone(), tip: up ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, -1) };
+    f.userData.flame = rest;
+    f.visible = false;
+    into.add(f);
+    flames.push(f);
+  }
+  return flames;
+}
+
+/**
+ * Scale a flame from addFlames to `len` times its modelled length and `width` times its radius, keeping
+ * its base at the pipe: only the tip grows. A scale about the cone's centre would push the base forward
+ * into the vehicle (the bike's muffler and rider, the truck's stacks and cab) by half the extra length.
+ */
+export function stretchFlame(f: THREE.Object3D, len: number, width: number): void {
+  f.scale.set(width, len, width);
+  const rest = f.userData.flame as FlameRest | undefined;
+  if (rest) f.position.copy(rest.centre).addScaledVector(rest.tip, (FLAME_LEN / 2) * (len - 1));
+}
+
+/** Dispose every geometry and material under root (each vehicle owns all of its own). */
+export function disposeTree(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.geometry.dispose();
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach((mat: THREE.Material) => mat.dispose());
+    }
+  });
+}
+
+/** Highest point of the template parts in their own frame. */
+export function partsTop(parts: readonly ShellPart[]): number {
+  let top = -Infinity;
+  for (const { geo } of parts) {
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    top = Math.max(top, geo.boundingBox!.max.y);
+  }
+  return top;
+}
+
+/** A car draws each physics wheel; the front pair steers. */
+const CAR_WHEEL_SRC: readonly (readonly number[])[] = [[0], [1], [2], [3]];
+const CAR_STEERED: readonly boolean[] = [true, true, false, false];
 
 export function buildCar(color = '#e8452c', ghost = false, body: CarBody = DEFAULT_CAR_BODY): CarVisual {
   const root = new THREE.Group();
@@ -744,27 +879,11 @@ export function buildCar(color = '#e8452c', ghost = false, body: CarBody = DEFAU
 
   // A stale or tampered body id falls back to the racer.
   const kind: CarBody = isCarBody(body) ? body : DEFAULT_CAR_BODY;
-  // One draw call per material; everything but the lamps casts a shadow. Each car owns copies of
-  // the template geometry, so disposing one car never touches another.
   const { parts, spec } = shellTemplate(kind, ghost);
-  for (const { slot, geo } of parts) {
-    const part = new THREE.Mesh(geo.clone(), m[slot]!);
-    part.castShadow = !ghost && slot !== 'head' && slot !== 'tail';
-    shell.add(part);
-  }
+  addParts(shell, parts, m, ghost);
 
   // Exhaust flames (scaled by boost).
-  const flames: THREE.Mesh[] = [];
-  if (m.flame) {
-    for (const e of spec.exhausts) {
-      const f = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.9, 10), m.flame);
-      f.rotation.x = -Math.PI / 2;
-      f.position.set(e[0], e[1], e[2]);
-      f.visible = false;
-      shell.add(f);
-      flames.push(f);
-    }
-  }
+  const flames = addFlames(shell, m, spec.exhausts);
 
   // Wheels: built with the outboard face at +x and mirrored on the right. A banded tyre carries its
   // colours in the geometry, so its material is white.
@@ -791,22 +910,26 @@ export function buildCar(color = '#e8452c', ghost = false, body: CarBody = DEFAU
   });
 
   return {
+    vehicle: 'car',
     body: kind,
     root,
+    lamps: shell,
     wheels,
     pivots,
+    wheelSrc: CAR_WHEEL_SRC,
+    steered: CAR_STEERED,
+    steerScale: 1,
+    maxRise: Infinity,
+    lean: null,
+    roll: null,
+    top: partsTop(parts),
     flames,
     lights: ghost ? [] : spec.lights,
     setColor(hex: string) {
       m.paint.color.set(hex);
     },
     dispose() {
-      root.traverse((o) => {
-        if (o instanceof THREE.Mesh) {
-          o.geometry.dispose();
-          (Array.isArray(o.material) ? o.material : [o.material]).forEach((mat: THREE.Material) => mat.dispose());
-        }
-      });
+      disposeTree(root);
     },
   };
 }

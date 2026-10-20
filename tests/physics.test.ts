@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DECK_EDGE, WALL_OFF } from '../src/core/constants';
 import { qfromYawDir } from '../src/core/vec';
 import { Autopilot } from '../src/game/bot';
-import { RaceSession } from '../src/game/race';
+import { loggedControls, RaceSession } from '../src/game/race';
 import { buildTrack } from '../src/track/builder';
 import { Track, type Column } from '../src/track/track';
 import { traceRoute } from '../src/track/route';
@@ -50,10 +50,7 @@ describe('simulation', () => {
     const b = new RaceSession(track);
     let n = 0;
     while (b.phase !== 'finished' && n < a.inputs.length + 1000) {
-      if (b.phase === 'racing') {
-        const k = b.ticks * 3;
-        b.step({ steer: a.inputs[k] / 127, gas: a.inputs[k + 1] / 255, brake: a.inputs[k + 2] / 255 });
-      } else b.step({ steer: 0, gas: 0, brake: 0 });
+      b.step(b.phase === 'racing' ? loggedControls(a.inputs, b.ticks) : { steer: 0, gas: 0, brake: 0 });
       n++;
     }
     expect(b.finishTime).toBe(a.finishTime);

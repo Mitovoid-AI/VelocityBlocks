@@ -9,6 +9,18 @@ export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
+/**
+ * The system asks for less motion (Android: Accessibility > Remove animations, where the WebView
+ * passes it on). Guarded, so node tests and old engines read false.
+ */
+export function prefersReducedMotion(): boolean {
+  try {
+    return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
 let touchActAt = -1e9;
 
 /** Replace the current screen. Handlers map `data-act` values to callbacks. */

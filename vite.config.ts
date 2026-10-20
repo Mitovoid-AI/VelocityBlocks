@@ -12,6 +12,9 @@ export default defineConfig(({ mode }) => {
     base: './',
     // A literal, so the bundler drops the adapters of the other networks (src/ads/adsUi.ts).
     define: { __VB_ADS__: JSON.stringify(AD_MODES.includes(ads) ? ads : 'none') },
+    // KTX2Loader finds the Basis transcoder next to itself (new URL(..., import.meta.url)): served from
+    // node_modules in dev, not from the pre-bundled deps folder where it does not exist. The build emits it.
+    optimizeDeps: { exclude: ['three/examples/jsm/loaders/KTX2Loader.js'] },
     build: {
       target: 'es2020',
       chunkSizeWarningLimit: 1200,

@@ -1,8 +1,10 @@
 // In-race heads-up display.
 
 import { formatTime } from '../game/race';
-import { MEDAL_COLORS, MEDAL_NAMES, type MedalTimes } from '../game/medals';
+import type { MedalTimes } from '../game/medals';
 import { $, esc } from './dom';
+import { authorRevealed, targetsHtml } from './medalUi';
+import type { NitroView } from './nitroView';
 
 export class Hud {
   private el = $('#hud');
@@ -12,6 +14,7 @@ export class Hud {
   private pb = $('#hud-pb');
   private track = $('#hud-track');
   private target = $('#hud-target');
+  private tags = $('#hud-tags');
   private count = $('#hud-count');
   private split = $('#hud-split');
   private msg = $('#hud-msg');
@@ -26,27 +29,84 @@ export class Hud {
   private msgTimer = 0;
   private lastTime = '';
   private lastSpeed = '';
+  private lastBoost = -1;
+  /** The nitro's two faces: the HUD ring (keys, controller) and the touch button, which carries its own ring. */
+  private nitroEls = [$('#hud-nitro'), $('#touch .t-nitro')].filter((x): x is HTMLElement => !!x);
+  private nitroKey = '';
+  private tiltBar = $('#hud-tilt');
+  private tiltX = '';
 
   show(v: boolean): void {
     this.el.classList.toggle('hidden', !v);
   }
 
-  setTrack(name: string, best: number | null, medals: MedalTimes | null, checkpoints: number): void {
+  /**
+   * The race's top-left lines: track name, the medal targets (the author target stays a "?" until
+   * `best` has beaten it), then read-only `tags` such as the vehicle class or "Walls". The tags get a
+   * line of their own: after a long name they would reach the race pills at 640 px.
+   */
+  setTrack(name: string, best: number | null, medals: MedalTimes | null, checkpoints: number, tags: readonly string[] = []): void {
     this.track.textContent = name;
-    const m = medals;
-    this.target.innerHTML = m
-      ? [4, 3, 2, 1]
-          .map((n) => {
-            const t = n === 4 ? m.author : n === 3 ? m.gold : n === 2 ? m.silver : m.bronze;
-            return `<span class="medal" style="background:${MEDAL_COLORS[n]}" title="${MEDAL_NAMES[n]}"></span>${formatTime(t)}`;
-          })
-          .join('&nbsp;&nbsp;')
-      : '<span class="muted">No author time yet</span>';
+    this.target.innerHTML = targetsHtml(medals, authorRevealed(best, medals));
+    this.tags.innerHTML = tags.map((t) => `<span class="hud-chip">${esc(t)}</span>`).join('');
     this.pb.textContent = best !== null ? `PB ${formatTime(best)}` : 'No personal best';
     this.setCheckpoints(0, checkpoints);
     this.split.classList.remove('show');
     this.msg.classList.remove('show');
     this.flipWarning(null);
+    this.nitroKey = '';
+  }
+
+  /**
+   * The nitro: ready (full ring, glowing), boosting (the ring empties with the push) or recharging
+   * (the ring fills over the 6 s with the seconds left in it); `armed` glows brighter for a press in
+   * the 3-2-1. Called every frame, so it only writes on change.
+   */
+  nitro(v: NitroView, armed: boolean): void {
+    // The ring in 2% steps: finer is invisible on a 26-64 px ring, and each change repaints its gradient.
+    const p = Math.round(v.p * 50) / 50;
+    const key = `${v.state}|${p}|${v.secondsLeft}|${armed}`;
+    if (key === this.nitroKey) return;
+    this.nitroKey = key;
+    for (const el of this.nitroEls) {
+      el.classList.toggle('n-ready', v.state === 'ready');
+      el.classList.toggle('n-boost', v.state === 'boosting');
+      el.classList.toggle('n-charge', v.state === 'recharging');
+      el.classList.toggle('n-armed', armed);
+      el.style.setProperty('--p', p.toFixed(2));
+      const sec = el.querySelector('.n-sec');
+      const text = v.secondsLeft ? String(v.secondsLeft) : '';
+      if (sec && sec.textContent !== text) sec.textContent = text;
+    }
+  }
+
+  /** The nitro has recharged: a short pop. */
+  nitroPop(): void {
+    this.flash('pop');
+  }
+
+  /** Pressed while recharging: a short shake. */
+  nitroDeny(): void {
+    this.flash('deny');
+  }
+
+  /** Restart a one-shot animation (the other one's class goes, or its rule would win). */
+  private flash(cls: 'pop' | 'deny'): void {
+    for (const el of this.nitroEls) {
+      el.classList.remove('pop', 'deny');
+      void el.offsetWidth;
+      el.classList.add(cls);
+    }
+  }
+
+  /** The tilt bar under the timer: steering -1..1 from straight ahead, or null to hide it. Only writes on change. */
+  tilt(v: number | null): void {
+    if (!this.tiltBar) return;
+    const x = v === null ? '' : Math.max(-1, Math.min(1, v)).toFixed(2);
+    if (x === this.tiltX) return;
+    if ((x === '') !== (this.tiltX === '')) this.tiltBar.classList.toggle('hidden', x === '');
+    this.tiltX = x;
+    if (x) this.tiltBar.style.setProperty('--x', x);
   }
 
   setCheckpoints(taken: number, total: number): void {
@@ -64,7 +124,12 @@ export class Hud {
       this.speed.textContent = s;
       this.lastSpeed = s;
     }
-    this.boost.style.width = `${Math.round(Math.min(1, boost) * 100)}%`;
+    // Written only on change: an unchanged inline style still costs a style recalc on some WebViews.
+    const b = Math.round(Math.min(1, Math.max(0, boost)) * 100);
+    if (b !== this.lastBoost) {
+      this.boost.style.width = `${b}%`;
+      this.lastBoost = b;
+    }
   }
 
   countdown(text: string): void {

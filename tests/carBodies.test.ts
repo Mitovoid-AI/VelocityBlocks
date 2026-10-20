@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { CAR_BODIES, DEFAULT_CAR_BODY, isCarBody, type CarBody } from '../src/core/cars';
+import { CAR_BODIES, CAR_ICON_WHEELS, DEFAULT_CAR_BODY, isCarBody, VEHICLE_INFO, VEHICLE_NOTE, vehicleInfo, type CarBody } from '../src/core/cars';
+import { VEHICLE_CLASSES, type VehicleClass } from '../src/core/vehicles';
 import { WHEEL_ANCHORS, WHEEL_RADIUS } from '../src/physics/vehicle';
 import { AVATAR_BOB_AMP, AVATAR_LIFT, AVATAR_SIZE } from '../src/render/avatar';
 import { buildCar, type CarVisual } from '../src/render/carMesh';
@@ -89,6 +90,36 @@ describe('car body list', () => {
       const nums = b.icon.match(/[\d.]+/g)!.map(Number);
       expect(nums.length % 2, b.id).toBe(0);
       nums.forEach((n, i) => expect(n, b.id).toBeLessThanOrEqual(i % 2 ? 24 : 64));
+    }
+  });
+});
+
+describe('vehicle picker', () => {
+  it('lists every class once, in class order', () => {
+    expect(VEHICLE_INFO.map((v) => v.id)).toEqual(VEHICLE_CLASSES);
+    for (const v of VEHICLE_INFO) {
+      expect(vehicleInfo(v.id)).toBe(v);
+      expect(v.name.length).toBeGreaterThan(0);
+      expect(v.blurb.length).toBeGreaterThan(0);
+    }
+    expect(vehicleInfo('tank' as VehicleClass).id).toBe('car');
+    expect(VEHICLE_INFO[0].icon).toBe(CAR_BODIES[0].icon);
+    expect(VEHICLE_INFO[0].wheels).toBe(CAR_ICON_WHEELS);
+    expect(VEHICLE_NOTE.length).toBeGreaterThan(0);
+  });
+
+  it('draws every class icon and its wheels inside the 64x24 box with plain path commands', () => {
+    for (const v of VEHICLE_INFO) {
+      expect(v.icon, v.id).toMatch(/^M[\d. LZM]+$/);
+      const nums = v.icon.match(/[\d.]+/g)!.map(Number);
+      expect(nums.length % 2, v.id).toBe(0);
+      nums.forEach((n, i) => expect(n, v.id).toBeLessThanOrEqual(i % 2 ? 24 : 64));
+      expect(v.wheels.length).toBe(2);
+      for (const [cx, cy, r] of v.wheels) {
+        expect(cx - r).toBeGreaterThanOrEqual(0);
+        expect(cx + r).toBeLessThanOrEqual(64);
+        expect(cy + r).toBeLessThanOrEqual(24);
+      }
     }
   });
 });

@@ -139,6 +139,14 @@ public class VbNativePlugin extends Plugin {
         return out;
     }
 
+    /*
+     * RESOLVED: a call with nothing to return still resolves with an empty object, never resolve().
+     * Capacitor's bridge logs every plugin result in debug builds with console.dir(result.data); with no
+     * data that is console.dir(undefined), which logcat shows as "Capacitor/Console: Line 353 - Msg:
+     * undefined" (keepAwake and setGestureExclusion run at every launch). An object logs as
+     * "[object Object]", which Capacitor's console filter drops.
+     */
+
     /** Keep the screen on while a race is running; menus may time out normally. */
     @PluginMethod
     public void keepAwake(PluginCall call) {
@@ -147,7 +155,7 @@ public class VbNativePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             if (on) activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             else activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            call.resolve();
+            call.resolve(new JSObject()); // not resolve(): see RESOLVED
         });
     }
 
@@ -184,7 +192,7 @@ public class VbNativePlugin extends Plugin {
             }
             ViewCompat.setSystemGestureExclusionRects(getActivity().getWindow().getDecorView(), rects);
             Log.i(MainActivity.TAG, "gesture exclusion " + rects);
-            call.resolve();
+            call.resolve(new JSObject()); // not resolve(): see RESOLVED
         });
     }
 

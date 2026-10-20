@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { lineColors, lineJob, Phase, runJob, type RacingLineData } from '../src/game/racingLine';
-import { buildRibbon, drawWindow, RACING_LINE_RENDER_ORDER, RacingLineView } from '../src/render/racingLine';
+import { buildRibbon, chevronMark, drawWindow, RACING_LINE_RENDER_ORDER, RacingLineView } from '../src/render/racingLine';
 import { campaign } from '../src/track/campaign';
 import { Track } from '../src/track/track';
 
-/** A straight synthetic line along +x, gently rising, with a hidden stretch (a jump). */
+/** A straight synthetic line along +x, gently rising, with a hidden stretch (a jump); every phase in turn. */
 function synthetic(n: number, hidden: [number, number]): RacingLineData {
   const d: RacingLineData = {
     x: new Float32Array(n),
@@ -22,7 +22,8 @@ function synthetic(n: number, hidden: [number, number]): RacingLineData {
     d.x[i] = i;
     d.y[i] = 2 + i * 0.01;
     d.s[i] = i;
-    d.phase[i] = i % 30 < 10 ? Phase.Brake : Phase.Throttle;
+    const k = i % 40;
+    d.phase[i] = k < 10 ? Phase.Brake : k < 20 ? Phase.Throttle : k < 30 ? Phase.Nitro : Phase.Lift;
     d.brake[i] = d.phase[i] === Phase.Brake ? 0.8 : 0;
     d.visible[i] = i >= hidden[0] && i <= hidden[1] ? 0 : 1;
   }
@@ -46,12 +47,39 @@ describe('racing line ribbon', () => {
       expect(Math.hypot(rx - lx, rz - lz)).toBeCloseTo(1, 5);
       expect(r.edge[2 * i]).toBe(-1);
       expect(r.edge[2 * i + 1]).toBe(1);
-      expect(r.brake[2 * i]).toBe(d.phase[i] === Phase.Brake ? 1 : 0);
+      expect(r.mark[2 * i]).toBe(chevronMark(d.phase[i]));
+      expect(r.mark[2 * i + 1]).toBe(chevronMark(d.phase[i]));
       if (i) expect(r.firstIndex[i]).toBeGreaterThanOrEqual(r.firstIndex[i - 1]);
     }
     expect(r.firstIndex[299]).toBe(r.index.length);
     // No triangle touches a hidden sample.
     for (const v of r.index) expect(d.visible[v >> 1]).toBe(1);
+  });
+
+  it('handles all four phases: dark chevrons in brake zones, light ones on nitro, colours from lineColors', () => {
+    expect([Phase.Throttle, Phase.Lift, Phase.Brake, Phase.Nitro].map(chevronMark)).toEqual([0, 0, 1, -1]);
+    const colors = lineColors(d);
+    for (const p of [Phase.Throttle, Phase.Lift, Phase.Brake, Phase.Nitro]) {
+      const i = d.phase.indexOf(p);
+      expect(i, `phase ${p}`).toBeGreaterThanOrEqual(0);
+      // Both edge vertices carry the sample's colour as lineColors paints it.
+      for (const k of [0, 3]) expect(Array.from(r.color.subarray(i * 6 + k, i * 6 + k + 3))).toEqual(Array.from(colors.subarray(i * 3, i * 3 + 3)));
+    }
+    // Every visible nitro run is drawn (nitro samples are on the road like any other).
+    for (let i = 0; i < 299; i++) {
+      if (d.phase[i] === Phase.Nitro && d.visible[i] && d.visible[i + 1]) expect(r.firstIndex[i + 1] - r.firstIndex[i]).toBe(6);
+    }
+    const view = new RacingLineView(d);
+    const mark = view.mesh.geometry.getAttribute('aMark').array as Float32Array;
+    expect(Array.from(mark)).toEqual(Array.from(r.mark));
+    // Auto-accelerate repaints lifts only: nitro and brake samples keep their colours.
+    const col = view.mesh.geometry.getAttribute('aCol').array as Float32Array;
+    const nitroAt = d.phase.indexOf(Phase.Nitro) + 3;
+    const brakeAt = d.phase.indexOf(Phase.Brake) + 3;
+    const before = [nitroAt, brakeAt].map((i) => Array.from(col.subarray(i * 6, i * 6 + 3)));
+    view.setLiftAsThrottle(true);
+    expect([nitroAt, brakeAt].map((i) => Array.from(col.subarray(i * 6, i * 6 + 3)))).toEqual(before);
+    view.dispose();
   });
 
   it('draws a window from just behind the car to far ahead', () => {

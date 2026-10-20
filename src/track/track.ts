@@ -9,11 +9,13 @@ import {
   DIR_Z,
   LEVEL_H,
   STADIUM_PAD,
+  VEHICLE_REV,
   WALL_H,
   WALL_OFF,
   wrapDir,
   type Dir,
 } from '../core/constants';
+import type { VehicleClass } from '../core/vehicles';
 import { BLOCKS, centerAt, projectLocal, type BlockDef, type BlockType, type LocalHit } from './blocks';
 
 export interface Placement {
@@ -32,8 +34,32 @@ export interface TrackData {
   name: string;
   author: string;
   blocks: Placement[];
-  /** Author time in milliseconds when known. */
+  /** The car's author time in milliseconds when known (set by a walls-off test drive). */
   authorTime?: number;
+  /** The other classes' author times, each with the VEHICLE_REV it was driven with (a retune retires it). */
+  authorTimes?: Partial<Record<Exclude<VehicleClass, 'car'>, ClassAuthorTime>>;
+}
+
+/** A Bike or Truck author time on a custom track (ms), and the class revision it belongs to. */
+export interface ClassAuthorTime {
+  t: number;
+  rev: number;
+}
+
+/** A custom track's author time for a vehicle class, or null when it has none for the class's current revision. */
+export function authorTimeFor(d: TrackData, vehicle: VehicleClass): number | null {
+  if (vehicle === 'car') return d.authorTime ?? null;
+  const a = d.authorTimes?.[vehicle];
+  return a && a.rev === VEHICLE_REV[vehicle] ? a.t : null;
+}
+
+/** A copy of the track data with one class's author time set (or cleared with undefined). */
+export function withAuthorTime(d: TrackData, vehicle: VehicleClass, t: number | undefined): TrackData {
+  if (vehicle === 'car') return { ...d, authorTime: t };
+  const times = { ...d.authorTimes };
+  if (t === undefined) delete times[vehicle];
+  else times[vehicle] = { t, rev: VEHICLE_REV[vehicle] };
+  return { ...d, authorTimes: Object.keys(times).length ? times : undefined };
 }
 
 export class PlacedBlock {
@@ -170,6 +196,24 @@ export interface Column {
 }
 
 const GRASS_GRIP = 0.55;
+/**
+ * Walls on all roads: the face of an added (low) barrier as a hull meets it from the grass, the deck slab's
+ * outer edge plus the 0.2 m hull-inside-bumper allowance the start back wall uses.
+ */
+const WALL_OUTER = DECK_EDGE + 0.2;
+/**
+ * A car centre at most this far out towards an added barrier is on the road: the barrier holds it in with
+ * the full reach. Every class's centre stays inside it while its hull touches the barrier (the bike's
+ * narrow hull touches with its centre at 10.15 m). A centre between this and WALL_OUTER straddles the
+ * barrier line, which only happens around an open end (a jump gap, the finish): the slab then pushes a
+ * hull point out of its nearer face only.
+ */
+const WALL_IN = WALL_OFF - 0.2;
+/**
+ * Largest push-out (m) an added barrier gives a hull point in one tick: a car that came round an open end
+ * with a corner beyond the barrier line slides off it over a few ticks instead of jumping sideways.
+ */
+const WALL_STEP = 0.4;
 /** Embankment faces: a hull point this far below the deck top counts as hitting the side. */
 const SIDE_STEP = 0.05;
 /** Width of the band inside an embankment's edge (and high end) that belongs to the solid face. */
@@ -194,8 +238,14 @@ export class Track {
   /** Gate posts and pillars, shared by the renderer and the physics. */
   readonly columns: Column[] = [];
   private readonly colIndex = new Map<number, Column[]>();
+  /** Settings > "Walls on all roads": barriers along every road edge, not only on raised decks. */
+  readonly walls: boolean;
 
-  constructor(readonly data: TrackData) {
+  constructor(
+    readonly data: TrackData,
+    opts: { walls?: boolean } = {},
+  ) {
+    this.walls = opts.walls === true;
     this.blocks = data.blocks.map((p, n) => new PlacedBlock(p, n));
     let minI = Infinity, minJ = Infinity, maxI = -Infinity, maxJ = -Infinity;
     let cps = 0;
@@ -353,8 +403,13 @@ export class Track {
     return { y: 0, nx: 0, ny: 1, nz: 0, grip: GRASS_GRIP, road: false, block: null };
   }
 
-  /** Barrier contact for a point; returns the push-out vector when the point is inside a barrier. */
-  wallAt(x: number, y: number, z: number): WallHit | null {
+  /**
+   * Barrier contact for a point; returns the push-out vector when the point is inside a barrier. (cx, cz) is
+   * the car centre (stepCar passes where it was a moment ago): with walls on all roads a low barrier can be
+   * met from the grass too, and the centre picks the face. `lift` is how far the probe sits above the hull
+   * point it stands for (VehicleSpec.wallProbe), so the embankment hand-over below meets sideAt's step.
+   */
+  wallAt(x: number, y: number, z: number, cx = x, cz = z, lift = 0.3): WallHit | null {
     // Back wall behind each start line, solid from both sides and not tied to one cell. The drawn wall
     // spans b in [-0.6, 0]; hull corners sit about 0.2 m inside the visible bumpers, so the solid slab
     // is the drawn one grown by that much and the car stops touching the concrete.
@@ -381,14 +436,32 @@ export class Track {
         // Side barriers only where the deck is high enough to fall from; low decks open onto the grass.
         // On an embankment the solid side face (sideAt) owns everything below the deck and outside the
         // drawn barrier; letting both claim a point pushes the car back and forth by metres per tick.
-        // Barrier probes are lifted 0.3 m above the hull, hence the 0.25 against sideAt's 0.05 step.
+        // The probe sits `lift` above its hull point, which sideAt claims below sy - SIDE_STEP: the barrier
+        // takes over exactly there, so no hull point slips between the two (the car's 0.3 lift gives the
+        // 0.25 it always had; the truck's low probe would otherwise leave a 0.27 m gap onto a low slope).
         const reach = blk.embank ? DECK_EDGE : WALL_OFF + 2.6;
-        if (blk.embank && y < sy + 0.25) continue;
-        if (!wall && sy >= BARRIER_MIN_Y && ad > WALL_OFF && ad < reach) {
-          // Right-of-tangent direction in local frame is (tb, -ta).
-          const sgn = hit.d > 0 ? -1 : 1;
-          const w = blk.dirToWorld(hit.tb * sgn, -hit.ta * sgn);
-          wall = { nx: w.x, nz: w.z, depth: ad - WALL_OFF };
+        if (blk.embank && y < sy + 0.25 - (0.3 - lift)) continue;
+        if (wall || ad <= WALL_OFF) continue;
+        const native = sy >= BARRIER_MIN_Y;
+        if (!native && !this.walls) continue;
+        // Right-of-tangent direction in local frame is (tb, -ta); w points back towards the centre line.
+        const sgn = hit.d > 0 ? -1 : 1;
+        const w = blk.dirToWorld(hit.tb * sgn, -hit.ta * sgn);
+        if (native) {
+          if (ad < reach) wall = { nx: w.x, nz: w.z, depth: ad - WALL_OFF };
+          continue;
+        }
+        // An added barrier: the centre's offset towards this barrier (negative across the centre line).
+        const cd = this.centreOffset(blk, cx, cz) * Math.sign(hit.d);
+        if (cd < WALL_IN && (this.spans(blk, cx, cz) || this.onDeckAt(cx, y, cz))) {
+          // A car on the road: held in like by a raised barrier.
+          if (ad < reach) wall = { nx: w.x, nz: w.z, depth: Math.min(ad - WALL_OFF, WALL_STEP) };
+        } else if (ad < WALL_OUTER) {
+          // From the grass, astride the barrier line, or beside an open end: only the slab is solid, and the
+          // hull point leaves it by the outer face (or the inner one, when that is nearer and the car is not
+          // clearly outside).
+          const outward = cd >= WALL_OUTER || WALL_OUTER - ad <= ad - WALL_OFF;
+          wall = outward ? { nx: -w.x, nz: -w.z, depth: WALL_OUTER - ad } : { nx: w.x, nz: w.z, depth: ad - WALL_OFF };
         }
       }
       if (wall) return wall;
@@ -402,6 +475,31 @@ export class Track {
     if (z < z0) return { nx: 0, nz: 1, depth: z0 - z };
     if (z > z1) return { nx: 0, nz: -1, depth: z - z1 };
     return null;
+  }
+
+  /** Signed lateral offset (m, positive right) of (x, z) from a block's centre line, beyond its ends too. */
+  private centreOffset(blk: PlacedBlock, x: number, z: number): number {
+    const l = blk.toLocal(x, z);
+    // An unbounded margin never misses: a line keeps its lateral offset, an arc its radius (d = turn * (R - r)).
+    return projectLocal(blk.def, l.a, l.b, Infinity)!.d;
+  }
+
+  /** Is (x, z) alongside the block, between its entry and exit? */
+  private spans(blk: PlacedBlock, x: number, z: number): boolean {
+    const l = blk.toLocal(x, z);
+    return projectLocal(blk.def, l.a, l.b) !== null;
+  }
+
+  /** Is (x, z) over a road deck near height y (a car crossing from one block to the next)? */
+  private onDeckAt(x: number, y: number, z: number): boolean {
+    const list = this.blocksAt(x, z);
+    if (!list) return false;
+    for (const blk of list) {
+      const l = blk.toLocal(x, z);
+      const hit = projectLocal(blk.def, l.a, l.b);
+      if (hit && Math.abs(hit.d) <= WALL_OFF && Math.abs(blk.baseY + hit.h - y) < 2) return true;
+    }
+    return false;
   }
 
   /** Spawn pose on the start block. */
@@ -426,10 +524,12 @@ export class Track {
 
 /**
  * Stretch of a block (distance along it) that keeps side barriers: where the deck is at least
- * BARRIER_MIN_Y above the floor. Heights are monotonic along every block, so there is one crossing at most.
+ * BARRIER_MIN_Y above the floor, or all of it with walls on all roads (`all`, Track.walls). Heights are
+ * monotonic along every block, so there is one crossing at most.
  */
-export function barrierRange(blk: PlacedBlock): [number, number] | null {
+export function barrierRange(blk: PlacedBlock, all = false): [number, number] | null {
   const L = blk.def.length;
+  if (all) return [0, L];
   const high = (s: number) => blk.baseY + blk.def.height(s) >= BARRIER_MIN_Y;
   const a = high(0);
   const b = high(L);

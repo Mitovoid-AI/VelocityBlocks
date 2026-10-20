@@ -36,6 +36,7 @@ function race(over: Record<string, unknown> = {}) {
     hud: { message: vi.fn(), show: vi.fn() },
     audio: { silence: vi.fn() },
     showTouch: vi.fn(),
+    input: { clearNitroPress: vi.fn() },
     store: { settings: { showGhost: true } },
     device: { sdk: 34, release: '14', maker: 'Xiaomi', model: 'Redmi Note 12', nav: 'gesture' },
     gestureInsets: { l: 24, r: 24, t: 24, b: 16 },
@@ -128,7 +129,7 @@ describe('RaceMode pause actions', () => {
   });
 
   it('the pause menu has the racing line toggle: off, on, or n/a for a track with no line', () => {
-    const r = race({ setPaused: proto.setPaused, entry: { fromEditor: false, key: 'c:A01' } });
+    const r = race({ setPaused: proto.setPaused, entry: { fromEditor: false, key: 'c:A01|w', base: 'c:A01', vehicle: 'car', walls: true } });
     proto.setPaused.call(r, true);
     expect(vi.mocked(showScreen).mock.calls[0][0]).toContain('data-act="line">Racing line: off<');
     const label = (RaceMode.prototype as unknown as { lineLabel(this: unknown): string }).lineLabel;
@@ -137,6 +138,7 @@ describe('RaceMode pause actions', () => {
     expect(label.call(r)).toBe('Racing line: on');
     const peek = vi.spyOn(lineJobs, 'peek').mockReturnValue(null);
     expect(label.call(r)).toBe('Racing line: n/a');
+    // Lines are open-road lines: a walls-on run asks for the plain key's line.
     expect(peek).toHaveBeenCalledWith('c:A01');
   });
 

@@ -1,11 +1,15 @@
 // The on-screen driving controls (#touch in index.html): ◀ ▶ buttons, wheel or tilt for
-// steering, and gas / brake as analog bars or round buttons. This is the DOM side: pointer
-// events go to TouchModel (the finger rules, tested without a DOM), and what it reads goes to
-// Input and onto the controls. The pills (CP, Restart, Pause, Cam) are bound by App.
+// steering, gas / brake as analog bars or round buttons, and the Nitro button. This is the DOM
+// side: pointer events go to TouchModel (the finger rules, tested without a DOM), and what it
+// reads goes to Input and onto the controls. The pills (CP, Restart, Pause, Cam) are bound by App.
 //
 // Kept from the round pads: controls act on pointerdown; touchstart is cancelled so a held
 // control never sets off Android's long-press buzz; a thumb held through the pause menu takes
 // the control it moves onto after Resume (TouchModel).
+//
+// The Nitro button is not a .t-ctl: it stays out of TouchModel, so a steering thumb sliding over
+// it never fires it. It acts on pointerdown like the pills (a second finger works), and Input
+// hears it as held until every finger on it lifts.
 
 import { STEER_MODES, type PedalMode, type SteerMode } from '../game/storage';
 import type { Input } from './input';
@@ -25,6 +29,9 @@ export class TouchControls {
   private readonly model = new TouchModel();
   private readonly ctls: HTMLElement[];
   private readonly rim: HTMLElement | null;
+  private readonly nitro: HTMLElement | null;
+  /** Fingers on the Nitro button. */
+  private readonly nitroHeld = new Set<number>();
   private layout: TouchLayout = { steer: 'buttons', pedals: 'bars', autoGas: false };
   private shown = false;
   /** Tilt is chosen but the sensor has not answered: the buttons are shown instead. */
@@ -44,6 +51,8 @@ export class TouchControls {
   ) {
     this.ctls = [...root.querySelectorAll<HTMLElement>('.t-ctl')];
     this.rim = root.querySelector<HTMLElement>('.t-wheel-rim');
+    this.nitro = root.querySelector<HTMLElement>('.t-nitro');
+    if (this.nitro) this.bindNitro(this.nitro);
     for (const el of this.ctls) {
       el.addEventListener('pointerdown', (e) => {
         e.preventDefault();
@@ -113,6 +122,48 @@ export class TouchControls {
   release(): void {
     this.model.clear();
     this.sync();
+    this.nitroHeld.clear();
+    this.nitro?.classList.remove('pressing');
+    this.input.setNitroTouch(false);
+  }
+
+  /**
+   * The Nitro button: held from pointerdown until every finger on it lifts or slides off it. A thumb
+   * that slides on to the steering is taken by TouchModel (move), and must not keep the nitro held,
+   * or it would fire again by itself once recharged.
+   */
+  private bindNitro(b: HTMLElement): void {
+    const lift = (id: number) => {
+      if (!this.nitroHeld.delete(id) || this.nitroHeld.size) return;
+      b.classList.remove('pressing');
+      this.input.setNitroTouch(false);
+    };
+    b.addEventListener('pointermove', (e) => {
+      if (!this.nitroHeld.has(e.pointerId)) return;
+      const r = b.getBoundingClientRect();
+      const m = 12;
+      if (e.clientX < r.left - m || e.clientX > r.right + m || e.clientY < r.top - m || e.clientY > r.bottom + m) lift(e.pointerId);
+    });
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.nitroHeld.add(e.pointerId);
+      b.classList.add('pressing');
+      try {
+        b.setPointerCapture(e.pointerId);
+      } catch {
+        // The pointer is already gone; its pointerup won't come.
+      }
+      this.input.setNitroTouch(true);
+    });
+    b.addEventListener('pointerup', (e) => lift(e.pointerId));
+    b.addEventListener('pointercancel', (e) => lift(e.pointerId));
+    b.addEventListener('lostpointercapture', (e) => lift(e.pointerId));
+    b.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Clicks not made by a pointer (accessibility actions, element.click()) have detail 0.
+    b.addEventListener('click', (e) => {
+      if (e.detail === 0) this.input.pressNitro('touch');
+    });
   }
 
   /**
@@ -148,24 +199,51 @@ export class TouchControls {
     this.root.classList.toggle('pedals-bars', l.pedals === 'bars');
     this.root.classList.toggle('pedals-buttons', l.pedals === 'buttons');
     this.root.classList.toggle('auto-gas', l.autoGas);
+    // The Nitro button sits well in from the edge above the steering, except with tilt and
+    // auto-accelerate, where it takes the empty bottom-left corner: only there is it guarded.
+    this.nitro?.toggleAttribute('data-edge-guard', steer === 'tilt' && l.autoGas);
   }
 
-  /** Model to Input and to the controls' looks. */
+  /**
+   * Model to Input and to the controls' looks. Runs on every finger move (up to the touch rate while
+   * steering), so each style is written only when its text changes: a write, even of the same value,
+   * can cost a style recalc in the frame.
+   */
   private sync(): void {
     const s = this.model.read();
     this.input.setTouchState({ steer: s.steer, gas: s.gas, brake: s.brake });
     for (const el of this.ctls) {
       const k = el.dataset.t as CtlKey;
       if (k === 'left' || k === 'right') {
-        el.classList.toggle('active', s.pads[k]);
+        this.setActive(el, s.pads[k]);
       } else if (k === 'gas' || k === 'brake') {
         const v = s[k];
-        el.style.setProperty('--v', v.toFixed(3));
-        el.classList.toggle('active', v > 0);
+        this.setStyle(el, '--v', v.toFixed(3));
+        this.setActive(el, v > 0);
       }
     }
     // Not held, the CSS transition brings the wheel back to the centre.
-    if (this.rim) this.rim.style.transform = `rotate(${((s.wheel ?? 0) * WHEEL_LOCK_DEG).toFixed(1)}deg)`;
-    this.root.classList.toggle('wheel-held', s.wheel !== null);
+    if (this.rim) this.setStyle(this.rim, 'transform', `rotate(${((s.wheel ?? 0) * WHEEL_LOCK_DEG).toFixed(1)}deg)`);
+    const held = s.wheel !== null;
+    if (held !== this.wheelHeld) {
+      this.wheelHeld = held;
+      this.root.classList.toggle('wheel-held', held);
+    }
+  }
+
+  /** Last written inline styles per element (sync's change check). */
+  private readonly written = new Map<HTMLElement, Record<string, string>>();
+  private wheelHeld = false;
+
+  private setStyle(el: HTMLElement, prop: string, v: string): void {
+    let w = this.written.get(el);
+    if (!w) this.written.set(el, (w = {}));
+    if (w[prop] === v) return;
+    w[prop] = v;
+    el.style.setProperty(prop, v);
+  }
+
+  private setActive(el: HTMLElement, on: boolean): void {
+    if (el.classList.contains('active') !== on) el.classList.toggle('active', on);
   }
 }

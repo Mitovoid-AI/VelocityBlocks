@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { PHYSICS_VERSION } from '../src/core/constants';
+import { PHYSICS_VERSION, VEHICLE_REV } from '../src/core/constants';
+import { entryKey, VEHICLE_CLASSES, type VehicleClass } from '../src/core/vehicles';
+import { classAuthorTimes, type AuthorTable } from '../src/game/medals';
 import {
+  classLines,
   cornerSpeed,
   encodeLine,
   LAT_USE,
@@ -9,6 +12,7 @@ import {
   LINE_STEP,
   minCurvatureOffsets,
   offsetRoute,
+  paceHit,
   paceRun,
   Phase,
   runJob,
@@ -19,15 +23,15 @@ import {
   type RacingLineData,
   type StoredLines,
 } from '../src/game/racingLine';
-import { DRIFT_STEER, maxLatAccel } from '../src/physics/vehicle';
-import authorTimes from '../src/track/authorTimes.json';
+import { CAR, DRIFT_STEER, lineHalfWidth, maxLatAccel, vehicleSpec } from '../src/physics/vehicle';
+import authorTimes_ from '../src/track/authorTimes.json';
 import { buildTrack } from '../src/track/builder';
 import { CAMPAIGN_DEFS } from '../src/track/campaign';
 import racingLines from '../src/track/racingLines.json';
 import { nearestPoint, traceRoute, type Route } from '../src/track/route';
 import { Track } from '../src/track/track';
 
-const author = authorTimes as { physics: number; times: Record<string, number> };
+const author = authorTimes_ as { physics: number; times: Record<string, number> };
 const stored = racingLines as StoredLines;
 
 interface Paced {
@@ -40,18 +44,18 @@ interface Paced {
 
 const cache = new Map<string, Paced>();
 /**
- * A campaign line computed step by step as paceLineJob does (with its crest-limited retry), keeping
- * the pieces.
+ * A campaign line computed step by step as paceLineJob does (with its retries), keeping the pieces.
  */
-function paced(id: string, name: string, code: string): Paced {
-  let p = cache.get(id);
+function paced(id: string, name: string, code: string, cls: VehicleClass = 'car'): Paced {
+  let p = cache.get(`${cls}:${id}`);
   if (!p) {
+    const S = vehicleSpec(cls);
     const track = new Track(buildTrack(`${id} ${name}`, code));
     const base = traceRoute(track);
-    const e = runJob(minCurvatureOffsets(base.points, lateralLimits(track, base)));
-    const { pilot, run } = runJob(paceRun(track, offsetRoute(base, e)));
+    const e = runJob(minCurvatureOffsets(base.points, lateralLimits(track, base, lineHalfWidth(S))));
+    const { pilot, run } = runJob(paceRun(track, offsetRoute(base, e), S));
     const d = run.trace ? runJob(sampleLine(run.trace, track, base)) : (null as unknown as RacingLineData);
-    cache.set(id, (p = { track, base, pilot, run, d }));
+    cache.set(`${cls}:${id}`, (p = { track, base, pilot, run, d }));
   }
   return p;
 }
@@ -84,7 +88,7 @@ function crests(base: Route, pilot: PacePilot): number[] {
   const out: number[] = [];
   let hint = -1, last = -10, slowest = Infinity;
   for (let n = 0; n < pts.length; n++) {
-    if (!(pilot.vLimit[n] < cornerSpeed(pts[n].curv))) continue;
+    if (!(pilot.vLimit[n] < cornerSpeed(pts[n].curv, CAR))) continue;
     hint = nearestPoint(base, pts[n].x, pts[n].y, pts[n].z, hint);
     if (n - last > 2) {
       out.push(base.points[hint].s);
@@ -159,6 +163,23 @@ describe('campaign racing lines', () => {
       for (let k = 0; k < t.x.length; k++) if (t.brake[k] > 0) expect(Math.abs(t.steer[k])).toBeLessThanOrEqual(DRIFT_STEER);
     });
 
+    it(`${id} ${name}: the pace car fires its nitro, shown violet, and never brakes while it pushes`, () => {
+      const { base, run, d } = paced(id, name, code);
+      const t = run.trace!;
+      expect(t.nitro!.some((on) => on === 1)).toBe(true);
+      // drivePace counts them (paceRun skips a no-nitro retry of a lap that never fired one).
+      expect(run.nitros).toBeGreaterThan(0);
+      // A push runs from one tick to the next with the brake up (braking would end it).
+      for (let k = 1; k < t.x.length; k++) if (t.nitro![k - 1] && t.nitro![k]) expect(t.brake[k], `tick ${k}`).toBe(0);
+      const violet = d.phase.reduce((n, p) => n + (p === Phase.Nitro ? 1 : 0), 0);
+      expect(violet).toBeGreaterThan(20);
+      // Where the line is violet, the pace car's nitro was on (at speed some samples get no tick of their own).
+      const { s } = runJob(traceOnCentre(t, base));
+      const on = new Uint8Array(d.phase.length + 1);
+      for (let k = 0; k < t.x.length; k++) if (t.nitro![k]) on[Math.round(s[k] / LINE_STEP)] = 1;
+      for (let i = 0; i < d.phase.length; i++) if (d.phase[i] === Phase.Nitro) expect(on[i] || on[i - 1] || on[i + 1], `sample ${i}`).toBe(1);
+    });
+
     it(`${id} ${name}: the precomputed line is current`, () => {
       const { track, base, d } = paced(id, name, code);
       // A stale table makes every campaign race compute its line on the phone (scripts/racing-lines.ts).
@@ -191,7 +212,7 @@ describe('campaign racing lines', () => {
         if (!atLimit || !t.onRoad[k]) continue;
         let lat = 0;
         for (let j = k - 5; j <= k + 5; j++) lat += t.lat[j] / 11;
-        ratios.push(lat / (LAT_USE * maxLatAccel(t.v[k])));
+        ratios.push(lat / (LAT_USE * maxLatAccel(t.v[k], CAR)));
       }
     }
     ratios.sort((a, b) => a - b);
@@ -199,5 +220,60 @@ describe('campaign racing lines', () => {
     const median = ratios[ratios.length >> 1];
     expect(median).toBeGreaterThan(0.85);
     expect(median).toBeLessThan(1.15);
+  });
+});
+
+// The Bike and the Truck have their own lines (their own limits, trail-braking pace laps), stored per class.
+describe.each(['bike', 'truck'] as const)('campaign racing lines: %s', (cls) => {
+  const authorTimes = classAuthorTimes(authorTimes_ as AuthorTable, cls)!;
+
+  it('has a current section', () => {
+    expect(stored.physics).toBe(PHYSICS_VERSION);
+    expect(stored[cls]?.rev, `racingLines.json ${cls} section is for VEHICLE_REV ${VEHICLE_REV[cls]}`).toBe(VEHICLE_REV[cls]);
+  });
+
+  for (const [id, , name, code] of CAMPAIGN_DEFS) {
+    it(`${id} ${name}: the precomputed line is current, drawn, and beats the author time`, () => {
+      const { track, base, d } = paced(id, name, code, cls);
+      expect(d, 'the pace lap finishes cleanly').not.toBeNull();
+      expect(classLines(stored, cls)![id]).toEqual(encodeLine(d, base.length));
+      expect(runJob(lineJob(entryKey(`c:${id}`, cls, false), track))).toEqual(d);
+      expect(d.time).toBeLessThan(authorTimes[id]);
+      const shown = d.visible.reduce((a, v) => a + v, 0) / d.visible.length;
+      expect(shown, 'drawn share').toBeGreaterThan(0.7);
+    });
+  }
+});
+
+// A line teaches braking points, so its pace lap must not have run into anything: drivePace treats a stop
+// (checked every 10 ticks) or a barrier hit as a crash and paceRun retries more cautiously, and a lap that
+// crashed every time is no line at all. The A10 hairpin at the top of a climb after a turbo pad caught every
+// class before (the bike's stored line crashed twice).
+describe.each(VEHICLE_CLASSES)('campaign racing lines: the %s pace laps are clean', (cls) => {
+  for (const [id, , name, code] of CAMPAIGN_DEFS) {
+    it(`${id} ${name}`, () => {
+      const { run } = paced(id, name, code, cls);
+      expect(run.end).toBe('finished');
+      expect(run.trace, 'a clean try').not.toBeNull();
+      expect(run.crashed, 'crashed on the way').not.toBe(true);
+      expect(paceHit(run.trace!), 'tick of a barrier hit (40 km/h lost in 0.05 s on the road)').toBe(-1);
+    });
+  }
+});
+
+describe('racing lines and walls on all roads', () => {
+  it('a walled track gets the open-road line, for every class', () => {
+    for (const cls of VEHICLE_CLASSES) {
+      for (const id of ['A03', 'A05']) {
+        const [, , name, code] = CAMPAIGN_DEFS.find((c) => c[0] === id)!;
+        const data = buildTrack(`${id} ${name}`, code);
+        const open = runJob(lineJob(entryKey(`c:${id}`, cls, false), new Track(data)));
+        const walled = runJob(lineJob(entryKey(`c:${id}`, cls, true), new Track(data, { walls: true })));
+        expect(walled, `${cls} ${id}`).toEqual(open);
+      }
+    }
+    // A custom track computes its line on the open road too.
+    const data = buildTrack('custom', 'St Sx2 R Sx2 C Sx2 L2 Sx2 F');
+    expect(runJob(lineJob('u:x|w', new Track(data, { walls: true })))).toEqual(runJob(lineJob('u:x', new Track(data))));
   });
 });

@@ -59,6 +59,7 @@
         <div class="hud-tl">
           <div id="hud-track" class="hud-track"></div>
           <div id="hud-target" class="hud-target"></div>
+          <div id="hud-tags" class="hud-tags"></div>
         </div>
         <div class="hud-tr">
           <div id="hud-cp" class="hud-cp"></div>
@@ -69,12 +70,14 @@
         <div id="hud-msg" class="hud-msg" aria-live="polite"></div>
         <div id="hud-flip" class="hud-flip" aria-live="polite"><div id="hud-flip-text"></div><div class="hud-flip-bar"><div id="hud-flip-fill"></div></div></div>
         <div class="hud-bottom">
+          <div id="hud-tilt" class="hud-tilt hidden"><span></span></div>
           <div id="hud-time" class="hud-time">0:00.00</div>
         </div>
         <div class="hud-br">
           <div id="hud-speed" class="hud-speed">0</div>
           <div class="hud-unit">km/h</div>
           <div class="hud-boost"><div id="hud-boost-bar"></div></div>
+          <div id="hud-nitro" class="hud-nitro n-ready"><span class="n-ring"><span class="n-sec"></span></span><span class="hud-nitro-txt">NITRO <kbd>N</kbd></span></div>
         </div>
       </div>
       <div id="touch" class="hidden steer-buttons pedals-bars">
@@ -89,6 +92,7 @@
         <div class="t-pedal t-gas t-ctl" data-t="gas" data-edge-guard role="button" aria-label="Accelerate">
           <div class="t-track"><div class="t-fill"></div></div><span class="t-pedal-label">GAS</span><span class="t-pedal-icon">&#9650;</span>
         </div>
+        <button class="t-nitro n-ready" data-a="nitro" aria-label="Nitro"><span class="t-nitro-label">N<sub>2</sub>O</span><span class="n-sec"></span></button>
         <div class="t-top">
           <button class="t-small" data-a="respawn" aria-label="Respawn at checkpoint">&#10226; CP</button>
           <button class="t-small" data-a="restart" aria-label="Restart">&#8635; Restart</button>

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Autopilot } from '../src/game/bot';
-import { RaceSession } from '../src/game/race';
+import { loggedControls, RaceSession } from '../src/game/race';
 import { buildTrack } from '../src/track/builder';
 import { Track } from '../src/track/track';
 import {
   assistsFor,
+  CAR,
   createCar,
   DEFAULT_ASSISTS,
   forwardOf,
@@ -126,7 +127,7 @@ describe('aero and tyres', () => {
     const fast = skidpad(70, 0.6).a; // 252 km/h
     expect(slow).toBeGreaterThan(24);
     expect(fast).toBeGreaterThan(1.9 * slow);
-    expect(gripAccel(80)).toBeGreaterThan(2 * gripAccel(0));
+    expect(gripAccel(80, CAR)).toBeGreaterThan(2 * gripAccel(0, CAR));
   });
 
   it('full lock at speed rides the grip limit instead of scrubbing past it', () => {
@@ -174,8 +175,8 @@ describe('limits for speed planners', () => {
   it('maxLatAccel matches the skidpad', () => {
     for (const v of [15, 25, 50, 80]) {
       const a = latLimit(v);
-      expect(maxLatAccel(v) / a, `${v} m/s`).toBeGreaterThan(0.94);
-      expect(maxLatAccel(v) / a, `${v} m/s`).toBeLessThan(1.04);
+      expect(maxLatAccel(v, CAR) / a, `${v} m/s`).toBeGreaterThan(0.94);
+      expect(maxLatAccel(v, CAR) / a, `${v} m/s`).toBeLessThan(1.04);
     }
   });
 
@@ -185,10 +186,11 @@ describe('limits for speed planners', () => {
       const v0 = speedOf(c);
       for (let n = 0; n < 10; n++) stepCar(c, { steer: 0, gas: 0, brake: 1 }, flat);
       const decel = (v0 - speedOf(c)) / 0.1;
-      expect(maxBrakeDecel(v) / decel, `${v} m/s`).toBeGreaterThan(0.95);
-      expect(maxBrakeDecel(v) / decel, `${v} m/s`).toBeLessThan(1.04);
+      expect(maxBrakeDecel(v, CAR) / decel, `${v} m/s`).toBeGreaterThan(0.95);
+      expect(maxBrakeDecel(v, CAR) / decel, `${v} m/s`).toBeLessThan(1.04);
     }
-    expect(maxBrakeDecel()).toBe(maxBrakeDecel(0));
+    // Downforce only adds: standing still is the weakest it brakes.
+    for (const v of [10, 50, 90]) expect(maxBrakeDecel(v, CAR)).toBeGreaterThan(maxBrakeDecel(0, CAR));
   });
 });
 
@@ -344,10 +346,7 @@ describe('assists', () => {
     const replay = (assists: Assists) => {
       const b = new RaceSession(track, assists);
       while (b.ticks < a.ticks && b.phase !== 'finished') {
-        if (b.phase === 'racing') {
-          const k = b.ticks * 3;
-          b.step({ steer: a.inputs[k] / 127, gas: a.inputs[k + 1] / 255, brake: a.inputs[k + 2] / 255 });
-        } else b.step(NONE);
+        b.step(b.phase === 'racing' ? loggedControls(a.inputs, b.ticks) : NONE);
       }
       return b;
     };

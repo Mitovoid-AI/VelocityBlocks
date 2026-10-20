@@ -2,9 +2,11 @@
 
 import * as THREE from 'three';
 import { CELL, GRID, LEVEL_H, MAX_LEVEL, wrapDir, type Dir } from '../core/constants';
+import { entryKey, VEHICLE_LABEL } from '../core/vehicles';
 import { runBot } from '../game/bot';
+import { medalTimes } from '../game/medals';
 import { formatTime } from '../game/race';
-import { newId, type SavedTrack } from '../game/storage';
+import { layoutHash, newId, type SavedTrack } from '../game/storage';
 import type { Action } from '../input/input';
 import { buildTrackVisual, type TrackVisual } from '../render/trackMesh';
 import { BLOCK_LIST, type BlockType } from '../track/blocks';
@@ -12,7 +14,9 @@ import { exportTrack, importTrack } from '../track/format';
 import { traceRoute } from '../track/route';
 import { cellsFor, Track, type Placement, type TrackData } from '../track/track';
 import { $, downloadText, esc, pickTextFile, showScreen, toast } from '../ui/dom';
+import { authorRevealed, editorAuthorText, setAuthorHow } from '../ui/medalUi';
 import type { App, Mode } from './app';
+import { customAuthorTime, withCustomAuthorTime, withoutAuthorTimes } from './authorTime';
 
 const DIR_NAMES = ['N', 'E', 'S', 'W'];
 
@@ -150,7 +154,8 @@ export class EditorMode implements Mode {
   private commit(next: Placement[]): void {
     this.undo.push(this.data.blocks);
     if (this.undo.length > 100) this.undo.shift();
-    this.data = { ...this.data, blocks: next, authorTime: undefined };
+    // A different layout: every vehicle's author time has to be driven again.
+    this.data = { ...withoutAuthorTimes(this.data), blocks: next };
     this.dirty = true;
     this.rebuild();
     this.saveDraft();
@@ -160,7 +165,9 @@ export class EditorMode implements Mode {
   private rebuild(): void {
     const world = this.app.world;
     world.setTrack(null);
-    this.track = new Track(this.data);
+    // As a test drive will drive it: with Walls on all roads when that is on (enter() rebuilds, so a
+    // change in Settings shows when the editor is opened again).
+    this.track = new Track(this.data, { walls: this.app.store.settings.walls });
     if (this.visual) {
       world.scene.remove(this.visual.group);
       this.visual.dispose();
@@ -439,7 +446,7 @@ export class EditorMode implements Mode {
   private doUndo(): void {
     const prev = this.undo.pop();
     if (!prev) return;
-    this.data = { ...this.data, blocks: prev, authorTime: undefined };
+    this.data = { ...withoutAuthorTimes(this.data), blocks: prev };
     this.rebuild();
     this.saveDraft();
     this.updateStatus();
@@ -448,6 +455,7 @@ export class EditorMode implements Mode {
   // ------------------------------------------------------------ UI
 
   private renderUi(): void {
+    const { vehicle } = this.app.store.profile;
     const palette = BLOCK_LIST.map(
       (b) => `<button class="btn ${b.type === this.type ? 'sel' : ''}" data-act="type" data-type="${b.type}">${esc(b.label)}</button>`,
     ).join('');
@@ -461,7 +469,7 @@ export class EditorMode implements Mode {
          <button class="btn small" data-act="import">Import</button>
          <div class="spacer"></div>
          <button class="btn small" data-act="validate">Autopilot check</button>
-         <button class="btn small primary" data-act="test">&#9654; Test drive</button>
+         <button class="btn small primary" data-act="test">&#9654; Test drive${vehicle === 'car' ? '' : ` (${VEHICLE_LABEL[vehicle]})`}</button>
        </div>
        <div class="ed-palette">${palette}</div>
        <div class="ed-bottom">
@@ -501,7 +509,9 @@ export class EditorMode implements Mode {
           this.updateStatus();
         },
         save: () => {
-          this.app.store.saveCustomTrack({ id: this.id, data: this.data, updated: Date.now() });
+          if (!this.app.store.saveCustomTrack({ id: this.id, data: this.data, updated: Date.now() })) {
+            return toast('Storage is full: the track was not saved. Export it, or delete a track in My tracks.', 4000);
+          }
           this.dirty = false;
           toast(`Saved "${this.data.name}" to My tracks`);
         },
@@ -527,13 +537,16 @@ export class EditorMode implements Mode {
         validate: () => {
           const v = this.validation();
           if (!v.ok) return toast(v.msg, 2600);
-          toast('Autopilot is driving your track...', 1200);
+          // The profile's vehicle (a car's track can be too much for the truck's jumps), on the track
+          // as built: walls off, whatever Settings says.
+          const name = vehicle === 'car' ? 'Autopilot' : `Autopilot (${VEHICLE_LABEL[vehicle]})`;
+          toast(`${name} is driving your track...`, 1200);
           setTimeout(() => {
-            const r = runBot(new Track(this.data), 300);
+            const r = runBot(new Track(this.data), 300, { vehicle });
             toast(
               r.finished
-                ? `Autopilot finished in ${formatTime(r.time)}${r.respawns ? ` with ${r.respawns} respawn(s)` : ''}. Beat it in a test drive to set the author time.`
-                : 'The autopilot could not finish. Check jumps and tight turns.',
+                ? `${name} finished in ${formatTime(r.time)}${r.respawns ? ` with ${r.respawns} respawn(s)` : ''}. ${setAuthorHow(this.app.store.settings.walls, 'beat it in')} to set the author time.`
+                : `${name} could not finish. Check jumps and tight turns.`,
               4000,
             );
           }, 50);
@@ -593,8 +606,15 @@ export class EditorMode implements Mode {
     if (!this.screenEl) return;
     const v = this.validation();
     const el = $('#ed-status', this.screenEl);
-    const at = this.data.authorTime ? ` Author time ${formatTime(this.data.authorTime)}.` : v.ok ? ' Finish a test drive to set the author time.' : '';
-    el.textContent = `${this.data.blocks.length} blocks. ${v.msg}${at}`;
+    // The profile vehicle's author time, secret on an imported track until a test drive beats it
+    // (the test drive that sets one also writes the record that reveals it).
+    const { store } = this.app;
+    const { vehicle } = store.profile;
+    const at = customAuthorTime(this.data, vehicle);
+    const best = store.record(entryKey(`u:${layoutHash(this.data)}`, vehicle, store.settings.walls))?.best;
+    const shown = !!at && authorRevealed(best, medalTimes(at));
+    const cls = vehicle === 'car' ? '' : VEHICLE_LABEL[vehicle];
+    el.textContent = `${this.data.blocks.length} blocks. ${v.msg}${editorAuthorText(at, shown, v.ok, cls, store.settings.walls)}`;
     el.className = `ed-status ${v.ok ? 'ok' : 'warn'}`;
   }
 
@@ -604,12 +624,12 @@ export class EditorMode implements Mode {
     if (!this.data.blocks.some((b) => b.type === 'finish')) return toast('Place a Finish block first.');
     if (!v.ok) toast(v.msg, 2500);
     this.saveDraft();
+    const { vehicle } = this.app.store.profile;
+    // RaceMode decides when a run sets the author time (a first finish or a faster one, walls off).
     const entry = this.app.customEntry(this.data, true, (time) => {
-      if (!this.data.authorTime || time < this.data.authorTime) {
-        this.data = { ...this.data, authorTime: time };
-        this.saveDraft();
-        if (!this.dirty) this.app.store.saveCustomTrack({ id: this.id, data: this.data, updated: Date.now() });
-      }
+      this.data = withCustomAuthorTime(this.data, vehicle, time);
+      this.saveDraft();
+      if (!this.dirty) this.app.store.saveCustomTrack({ id: this.id, data: this.data, updated: Date.now() });
     });
     this.app.startRace(entry);
   }

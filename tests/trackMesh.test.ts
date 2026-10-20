@@ -124,3 +124,23 @@ describe('editor previews', () => {
     v.dispose();
   });
 });
+
+describe('Low tier road surfaces', () => {
+  it('draw the road, kerbs, skirts, banks and barriers with Lambert, same maps and vertex colours', () => {
+    const { track } = TRACKS[TRACKS.length - 1];
+    const full = meshes(buildTrackVisual(track).group);
+    const cheap = meshes(buildTrackVisual(track, { cheap: true }).group);
+    expect(cheap.map((m) => m.name)).toEqual(full.map((m) => m.name));
+    for (const name of ['deck', 'kerb', 'skirt', 'bank', 'barrier']) {
+      const a = full.find((m) => m.name === name);
+      const b = cheap.find((m) => m.name === name);
+      if (!a || !b) continue;
+      expect(a.material, name).toBeInstanceOf(THREE.MeshStandardMaterial);
+      expect(b.material, name).toBeInstanceOf(THREE.MeshLambertMaterial);
+      const bm = b.material as THREE.MeshLambertMaterial;
+      expect(bm.map, name).toBe((a.material as THREE.MeshStandardMaterial).map);
+      expect(bm.vertexColors, name).toBe(true);
+    }
+    expect(cheap.find((m) => m.name === 'deck')).toBeDefined();
+  });
+});

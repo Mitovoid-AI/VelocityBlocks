@@ -1,7 +1,8 @@
-// Racing-line ribbon: one mesh along the whole line, coloured per sample (green throttle, yellow lift,
-// orange to red brake with chevrons that read without colour), lying just above the road. It fades in
-// a few metres ahead of the car and out far ahead; following the car costs one uniform and a draw
-// range per frame, with no buffer uploads.
+// Racing-line ribbon: one mesh along the whole line, coloured per sample by game/racingLine.ts lineColors
+// (green throttle, violet nitro, yellow lift, orange to red brake), with chevrons so the two that matter
+// most read without colour too: dark ones in brake zones, light ones where the pace car fired its nitro.
+// It lies just above the road, fades in a few metres ahead of the car and out far ahead; following the car
+// costs one uniform and a draw range per frame, with no buffer uploads.
 
 import * as THREE from 'three';
 import type { V3 } from '../core/vec';
@@ -19,8 +20,13 @@ const LIFT = 0.09;
 /** Drawn from this far behind the car's place on the line to this far ahead (m); the shader fades both ends. */
 const BEHIND = 2;
 const AHEAD = 220;
-/** Brake chevron spacing along the line (m). */
+/** Chevron spacing along the line (m). */
 const CHEVRON = 2.4;
+
+/** Chevrons per phase: dark in brake zones (1), light on nitro (-1), none on throttle and lifts (0). */
+export function chevronMark(phase: number): number {
+  return phase === Phase.Brake ? 1 : phase === Phase.Nitro ? -1 : 0;
+}
 
 /** Vertex and index arrays of a ribbon: two vertices per sample (left, right). */
 export interface Ribbon {
@@ -30,8 +36,8 @@ export interface Ribbon {
   s: Float32Array;
   /** -1 on the left edge, +1 on the right. */
   edge: Float32Array;
-  /** 1 in brake zones (chevrons). */
-  brake: Float32Array;
+  /** Chevrons (chevronMark): 1 dark in brake zones, -1 light on nitro, else 0. */
+  mark: Float32Array;
   index: Uint16Array | Uint32Array;
   /** Index count before each segment (segment i joins samples i and i + 1); the last entry is the total. */
   firstIndex: Uint32Array;
@@ -47,7 +53,7 @@ export function buildRibbon(d: RacingLineData, colors: Float32Array, halfW = HAL
   const color = new Float32Array(n * 6);
   const s = new Float32Array(n * 2);
   const edge = new Float32Array(n * 2);
-  const brake = new Float32Array(n * 2);
+  const mark = new Float32Array(n * 2);
   let rx = 1, rz = 0;
   for (let i = 0; i < n; i++) {
     const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
@@ -63,7 +69,7 @@ export function buildRibbon(d: RacingLineData, colors: Float32Array, halfW = HAL
     s[2 * i] = s[2 * i + 1] = d.s[i];
     edge[2 * i] = -1;
     edge[2 * i + 1] = 1;
-    brake[2 * i] = brake[2 * i + 1] = d.phase[i] === Phase.Brake ? 1 : 0;
+    mark[2 * i] = mark[2 * i + 1] = chevronMark(d.phase[i]);
   }
   let segs = 0;
   for (let i = 0; i < n - 1; i++) if (d.visible[i] && d.visible[i + 1]) segs++;
@@ -78,7 +84,7 @@ export function buildRibbon(d: RacingLineData, colors: Float32Array, halfW = HAL
     at += 6;
   }
   firstIndex[Math.max(0, n - 1)] = at;
-  return { position, color, s, edge, brake, index, firstIndex };
+  return { position, color, s, edge, mark, index, firstIndex };
 }
 
 /** First index i with a[i] >= v (a non-decreasing). */
@@ -107,26 +113,27 @@ export function drawWindow(
   return [firstIndex[a], firstIndex[b] - firstIndex[a]];
 }
 
-const VERTEX = `attribute vec3 aCol; attribute float aS; attribute float aEdge; attribute float aBrake;
+const VERTEX = `attribute vec3 aCol; attribute float aS; attribute float aEdge; attribute float aMark;
   uniform float uCarS;
-  varying vec3 vCol; varying float vA; varying float vE; varying float vB; varying float vC;
+  varying vec3 vCol; varying float vA; varying float vE; varying float vM; varying float vC;
   void main(){
     float d = aS - uCarS;
     vA = smoothstep(3.0, 12.0, d) * (1.0 - smoothstep(150.0, ${AHEAD.toFixed(1)}, d));
-    vCol = aCol; vE = aEdge; vB = aBrake;
+    vCol = aCol; vE = aEdge; vM = aMark;
     // Chevron phase relative to the car keeps the fragment maths small (mediump) on long tracks.
     vC = d + mod(uCarS, ${CHEVRON.toFixed(1)});
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }`;
 
 const FRAGMENT = `uniform float uOpacity;
-  varying vec3 vCol; varying float vA; varying float vE; varying float vB; varying float vC;
+  varying vec3 vCol; varying float vA; varying float vE; varying float vM; varying float vC;
   void main(){
     float a = uOpacity * vA * (1.0 - smoothstep(0.65, 1.0, abs(vE)));
     if (a < 0.01) discard;
-    // Brake zones: darker chevrons pointing down the road.
-    float c = fract((vC + abs(vE) * 0.9) / ${CHEVRON.toFixed(1)});
-    vec3 col = mix(vCol, vCol * 0.45, vB * step(0.55, c));
+    // Chevrons pointing down the road: darker in brake zones (vM > 0), lighter on nitro (vM < 0).
+    float c = step(0.55, fract((vC + abs(vE) * 0.9) / ${CHEVRON.toFixed(1)}));
+    vec3 col = mix(vCol, vCol * 0.45, max(vM, 0.0) * c);
+    col = mix(col, mix(col, vec3(1.0), 0.45), max(-vM, 0.0) * c);
     // The colours are display sRGB: decode, then let three encode for the target (once on the
     // canvas, not at all into the bloom target, whose output pass encodes).
     gl_FragColor = sRGBTransferEOTF(vec4(col, a));
@@ -170,7 +177,7 @@ export function warmRacingLine(
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
   geo.setAttribute('aCol', new THREE.BufferAttribute(new Float32Array(3), 3));
-  for (const k of ['aS', 'aEdge', 'aBrake']) geo.setAttribute(k, new THREE.BufferAttribute(new Float32Array(1), 1));
+  for (const k of ['aS', 'aEdge', 'aMark']) geo.setAttribute(k, new THREE.BufferAttribute(new Float32Array(1), 1));
   const mesh = new THREE.Mesh(geo, keeper);
   mesh.renderOrder = RACING_LINE_RENDER_ORDER;
   renderer.setRenderTarget(target);
@@ -200,7 +207,7 @@ export class RacingLineView {
     geo.setAttribute('aCol', new THREE.BufferAttribute(r.color, 3));
     geo.setAttribute('aS', new THREE.BufferAttribute(r.s, 1));
     geo.setAttribute('aEdge', new THREE.BufferAttribute(r.edge, 1));
-    geo.setAttribute('aBrake', new THREE.BufferAttribute(r.brake, 1));
+    geo.setAttribute('aMark', new THREE.BufferAttribute(r.mark, 1));
     geo.setIndex(new THREE.BufferAttribute(r.index, 1));
     geo.setDrawRange(0, 0);
     this.mesh = new THREE.Mesh(geo, lineMaterial());

@@ -8,6 +8,7 @@ import {
   markEnvLit,
   refreshEnvLit,
   SKY,
+  SKY_RENDER_ORDER,
   skyMesh,
 } from '../src/render/sky';
 
@@ -88,5 +89,17 @@ describe('environment on metals', () => {
     ENV_LIGHT.map = null;
     refreshEnvLit(root);
     expect(metal.envMap).toBeNull();
+  });
+});
+
+describe('sky draw order', () => {
+  it('draws after every other opaque object, on the far plane, so covered pixels are never shaded', () => {
+    const sky = skyMesh();
+    const m = sky.material as THREE.ShaderMaterial;
+    expect(sky.renderOrder).toBe(SKY_RENDER_ORDER);
+    expect(SKY_RENDER_ORDER).toBeGreaterThan(1);
+    expect(m.transparent).toBe(false);
+    expect(m.depthTest).toBe(true);
+    expect(m.vertexShader).toContain('gl_Position.z = gl_Position.w');
   });
 });

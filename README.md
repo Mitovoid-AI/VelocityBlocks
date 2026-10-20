@@ -5,10 +5,12 @@ TrackMania Nations Forever formula: snap road blocks together into a track, driv
 you can, take every checkpoint, and beat the author time. You can also build and share your own
 tracks.
 
-It's a clean-room build. The code, physics tuning, tracks, 3D models, textures and sounds are all
-original, generated in code from scratch, and the game ships no third-party game assets.
+It's a clean-room build. The code, physics tuning, tracks, textures, sounds and the Classic vehicles
+are all original, generated in code from scratch. The optional Realistic vehicles are the one
+exception: third-party 3D models used under CC BY 4.0 (see [Third-party assets](#third-party-assets)).
 
-Velocity Blocks is open source under the [MIT License](LICENSE).
+Velocity Blocks is open source under the [MIT License](LICENSE). The MIT license covers the code
+only; the vehicle models in `public/vehicles/` keep their own license.
 
 ## Features
 
@@ -112,6 +114,12 @@ node <tmp>/author-times.mjs     # writes src/track/authorTimes.json relative to 
 - `scripts/layout.ts "<track code>"` prints an ASCII map of a track code.
 - `scripts/diag.ts "<track code>" [seconds] [bot|gas]` prints a physics trace.
 - `node scripts/make-icons.mjs` regenerates the Android and iOS icons and splash screens.
+- `scripts/build-vehicles.ts [id...]` rebuilds the Realistic vehicles (`public/vehicles/*.glb` and
+  `CREDITS.md`) from the authors' unzipped Sketchfab glTF downloads in `../assets-src/<folder>/`
+  (never committed; override with `VB_ASSETS_SRC`) with gltfpack 1.3 (`../tools/gltfpack/gltfpack.exe`
+  or `GLTFPACK`). It bakes each vehicle into the game's frame, names the wheels, strips material
+  extensions, whitens baked paint, then compresses (meshopt geometry, KTX2 textures) and checks the
+  phone budget. `tests/vehicleAssets.test.ts` checks the shipped files again.
 
 ## Browser builds with ads (CrazyGames, Poki)
 
@@ -201,9 +209,30 @@ Issues and pull requests are welcome. Before opening a pull request, run `npm ru
 physics must also bump `PHYSICS_VERSION`, because records and ghosts from older versions no longer
 match.
 
+## Third-party assets
+
+The Realistic vehicles (Profile > Vehicle > Realistic) are 3D models by other authors, used under the
+[Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/) license. They are
+**not** covered by the MIT license. The game credits them in Settings > Credits, and
+[`public/vehicles/CREDITS.md`](public/vehicles/CREDITS.md) lists each source, its author, the
+attribution line from the download and what was changed.
+
+- "Generic passenger car pack" by Comrade1280
+  (https://sketchfab.com/3d-models/generic-passenger-car-pack-20f9af9b8a404d5cb022ac6fe87f21f5):
+  the Sport, Coupe and Sedan.
+- "Cafe Racer" by Milin Andrei (https://sketchfab.com/3d-models/cafe-racer-c02dec85ac0541b8ab6dd56098706b50):
+  the Realistic bike (its rider is the game's own).
+- "LCT 3000 '95 - Low poly model" by Daniel Zhabotinsky
+  (https://sketchfab.com/3d-models/lct-3000-95-low-poly-model-663a0953c038434a918cb85725c88ffa):
+  the Realistic truck.
+
+The KTX2 texture transcoder that loads them (three.js `examples/jsm/libs/basis`, Apache-2.0) is
+bundled from the `three` package by the build.
+
 ## License
 
-[MIT](LICENSE) © 2026 Mitovoid-AI.
+[MIT](LICENSE) © 2026 Mitovoid-AI, for the code. The vehicle models in `public/vehicles/` are
+CC BY 4.0 (see [Third-party assets](#third-party-assets)).
 
 TrackMania is a trademark of Ubisoft and Nadeo. Velocity Blocks is an independent project and is
 not affiliated with or endorsed by them.

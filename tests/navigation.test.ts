@@ -3,12 +3,30 @@
 // App needs the DOM and WebGL, so its methods run on an unconstructed App (Object.create).
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { App, type Mode } from '../src/app/app';
+import { App, AttractMode, WALLS_ROUTE_NOTE, type Mode } from '../src/app/app';
 import { EditorMode } from '../src/app/editorMode';
 import { RaceMode, type RaceEntry } from '../src/app/raceMode';
-import { Store, type SavedTrack } from '../src/game/storage';
+import { entryKey } from '../src/core/vehicles';
+import { formatTime } from '../src/game/race';
+import { layoutHash, Store, type SavedTrack } from '../src/game/storage';
 import { Input, type Action } from '../src/input/input';
+import { buildTrack } from '../src/track/builder';
 import type { TrackData } from '../src/track/track';
+import { showScreen } from '../src/ui/dom';
+
+vi.mock('../src/ui/dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ui/dom')>()),
+  showScreen: vi.fn(() => ({ scrollTop: 0, querySelectorAll: () => [], querySelector: () => ({ addEventListener() {} }) })),
+  toast: vi.fn(),
+}));
+
+// The Bike's and Truck's tables may not be generated yet, and a miss runs the autopilot on all 12
+// tracks: fixed author times per class keep these tests fast.
+const AUTHOR = vi.hoisted(() => ({ car: 20000, bike: 24000, truck: 26000 }) as const);
+vi.mock('../src/game/medals', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/game/medals')>()),
+  campaignAuthorTime: vi.fn((_id: string, v: keyof typeof AUTHOR = 'car') => AUTHOR[v]),
+}));
 
 class MapStorage {
   readonly map = new Map<string, string>();
@@ -137,7 +155,10 @@ describe('RaceMode quit (Pause > Quit to menu, results > Menu)', () => {
     (RaceMode.prototype as unknown as { quit(this: unknown): void }).quit.call({ app, entry });
     return app;
   };
-  const entries = Object.create(App.prototype) as App;
+  // Entries read the profile's vehicle and the Walls setting.
+  const entries = Object.assign(Object.create(App.prototype), {
+    store: { profile: { vehicle: 'car' }, settings: { walls: false } },
+  }) as App;
 
   it('a My tracks race goes back to My tracks', () => {
     const app = quit(entries.customEntry(track('Mine')));
@@ -155,6 +176,146 @@ describe('RaceMode quit (Pause > Quit to menu, results > Menu)', () => {
     const app = quit(entries.customEntry(track('Mine'), true));
     expect(app.openEditor).toHaveBeenCalledWith();
     expect(app.myTracks).not.toHaveBeenCalled();
+  });
+});
+
+/** An App over a real Store for the menu screens (the menu car and the ads are stubbed). */
+function menus(): App {
+  const app = shell();
+  Object.assign(app, { ensureAttract: vi.fn(), ads: { canReward: () => false } });
+  return app as unknown as App;
+}
+const lastScreen = () => vi.mocked(showScreen).mock.calls[vi.mocked(showScreen).mock.calls.length - 1];
+const authorText = (t: number) => `Author ${formatTime(t)}`;
+
+describe('Campaign cards: secret author times, per vehicle and wall mode', () => {
+  it('stay secret until beaten with that vehicle in that wall mode', () => {
+    const app = menus();
+    app.campaignMenu();
+    let html = lastScreen()[0];
+    expect(html).toContain('?:??.??');
+    expect(html).not.toContain(authorText(AUTHOR.car));
+
+    app.store.addFinish('c:A01', AUTHOR.car - 100, []);
+    app.campaignMenu();
+    html = lastScreen()[0];
+    // A01 revealed; A02 (now unlocked) still secret.
+    expect(html.match(/Author 0:20\.00/g)).toHaveLength(1);
+    expect(html).toContain('?:??.??');
+
+    // The same run with walls on is another record: secret again there.
+    app.store.settings.walls = true;
+    app.campaignMenu();
+    html = lastScreen()[0];
+    expect(html).not.toContain(authorText(AUTHOR.car));
+    expect(html).toContain('Walls on');
+  });
+
+  it('the Car / Bike / Truck switch saves the vehicle and shows its own times and medals', () => {
+    const app = menus();
+    app.store.addFinish('c:A01', AUTHOR.car - 100, []);
+    app.campaignMenu();
+    const [html, , handlers] = lastScreen();
+    expect(html).toMatch(/data-act="veh" data-v="car" aria-pressed="true"/);
+    handlers.veh({ dataset: { v: 'bike' } } as unknown as HTMLElement);
+    expect(app.store.profile.vehicle).toBe('bike');
+    const bike = lastScreen()[0];
+    expect(bike).toMatch(/data-act="veh" data-v="bike" aria-pressed="true"/);
+    // The car's PB and revealed time are not the bike's, but A02 stays unlocked (shared unlocks).
+    expect(bike).not.toContain(authorText(AUTHOR.car));
+    expect(bike).not.toContain(`PB ${formatTime(AUTHOR.car - 100)}`);
+    expect(bike).not.toMatch(/data-act="locked" data-i="1"/);
+    app.store.addFinish(entryKey('c:A01', 'bike', false), AUTHOR.bike, []);
+    app.campaignMenu();
+    expect(lastScreen()[0]).toContain(authorText(AUTHOR.bike));
+  });
+
+  it('race entries carry the vehicle and wall mode, and Next track keeps them', () => {
+    const app = menus();
+    app.store.profile.vehicle = 'truck';
+    app.store.settings.walls = true;
+    const e = app.campaignEntry(0);
+    expect(e).toMatchObject({ base: 'c:A01', vehicle: 'truck', walls: true, key: entryKey('c:A01', 'truck', true), authorTime: AUTHOR.truck });
+    app.store.profile.vehicle = 'car';
+    app.store.settings.walls = false;
+    expect(app.nextCampaignEntry(e)).toMatchObject({ base: 'c:A02', vehicle: 'truck', walls: true, key: entryKey('c:A02', 'truck', true) });
+  });
+});
+
+describe('My tracks: secret author times', () => {
+  it('an imported track keeps its author time secret until beaten, per vehicle', () => {
+    const app = menus();
+    const data: TrackData = { ...track('Imported', 3), authorTime: 14000 };
+    app.store.saveCustomTrack(saved('imp-1', data));
+    app.myTracks();
+    expect(lastScreen()[0]).not.toContain(authorText(14000));
+    expect(lastScreen()[0]).toContain('?:??.??');
+    app.store.addFinish(`u:${layoutHash(data)}`, 13990, []);
+    app.myTracks();
+    expect(lastScreen()[0]).toContain(authorText(14000));
+    // The bike has no author time on it yet.
+    app.store.profile.vehicle = 'bike';
+    app.myTracks();
+    expect(lastScreen()[0]).toContain('Author --');
+    expect(lastScreen()[0]).toContain('Bike');
+  });
+
+  it('with walls on, warns about a track whose road is not joined from Start to a Finish', () => {
+    const app = menus();
+    const joined = buildTrack('Joined', 'St Sx2 F', 'Tester');
+    app.store.saveCustomTrack(saved('a', track('No finish', 3)));
+    app.store.saveCustomTrack(saved('b', joined));
+    app.myTracks();
+    expect(lastScreen()[0]).not.toContain(WALLS_ROUTE_NOTE);
+    app.store.settings.walls = true;
+    app.myTracks();
+    expect(lastScreen()[0].split(WALLS_ROUTE_NOTE)).toHaveLength(2);
+  });
+});
+
+describe('Settings: Walls on all roads', () => {
+  it('is a pair of buttons that saves the setting', () => {
+    const app = menus();
+    Object.assign(app, { setGarageView: vi.fn() });
+    const saveSettings = vi.spyOn(app.store, 'saveSettings');
+    vi.useFakeTimers();
+    try {
+      app.settingsMenu(() => {});
+      const [html, , handlers] = lastScreen();
+      expect(html).toMatch(/data-act="walls" data-v="off" aria-pressed="true"/);
+      handlers.walls({ dataset: { v: 'on' } } as unknown as HTMLElement);
+      expect(app.store.settings.walls).toBe(true);
+      expect(saveSettings).toHaveBeenCalled();
+      vi.runAllTimers(); // the menu track rebuild (none here: no menu car)
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('App.profileChanged', () => {
+  it('a vehicle change rebuilds the menu car with its physics in place, other changes as before', () => {
+    const m = Object.create(AttractMode.prototype) as AttractMode;
+    const setVehicle = vi.spyOn(m, 'setVehicle').mockImplementation(() => {});
+    const refreshCar = vi.spyOn(m, 'refreshCar').mockImplementation(() => {});
+    const setMode = vi.fn();
+    const preloadModel = vi.fn();
+    const requestWarm = vi.fn();
+    const app = { mode: m, store: { profile: { vehicle: 'bike', carColor: '#ffffff' } }, setMode, preloadModel, world: { requestWarm } };
+    App.prototype.profileChanged.call(app as unknown as App, 'vehicle');
+    expect(setVehicle).toHaveBeenCalledWith('bike');
+    expect(refreshCar).not.toHaveBeenCalled();
+    // A realistic model of the new class starts loading (the classic one shows meanwhile).
+    expect(preloadModel).toHaveBeenCalledTimes(1);
+    App.prototype.profileChanged.call(app as unknown as App, 'body');
+    expect(refreshCar).toHaveBeenCalled();
+    expect(setMode).not.toHaveBeenCalled();
+    expect(preloadModel).toHaveBeenCalledTimes(1);
+    // Classic <-> Realistic: rebuilt in place, its programs built before the next frame, the model loaded.
+    App.prototype.profileChanged.call(app as unknown as App, 'model');
+    expect(refreshCar).toHaveBeenCalledTimes(2);
+    expect(requestWarm).toHaveBeenCalled();
+    expect(preloadModel).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -292,6 +292,37 @@
   color: var(--muted);
   font-size: 12px;
 }
+/* Classic / Realistic: small toggles in the body label row (no extra row: see the height budget). */
+.pf-look-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.look-seg {
+  display: inline-flex;
+  gap: 4px;
+}
+.look-opt {
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  cursor: pointer;
+}
+.look-opt.sel {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.2);
+}
+.look-opt:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 1px;
+}
 
 /* ---- Controls tab: label / choice rows, then the switches ---- */
 .pf-grid {
@@ -314,38 +345,48 @@
   flex: 1;
   text-align: center;
 }
+/* Tilt: the sensitivity slider (src/ui/slider.ts), its 1.0-9.0, and More... (the Tilt steering screen). */
 .pf-tilt {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 .pf-tilt .btn {
   flex-shrink: 0;
   text-align: center;
 }
 .pf-sens {
-  min-width: 1.4em;
+  min-width: 2em;
   text-align: center;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
-/* Live tilt steering, -1..1 from the middle (a negative scale grows to the left). */
-.pf-gauge {
-  position: relative;
-  flex: 1 1 40px;
-  min-width: 30px;
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.15);
+/* ---- Tilt steering screen (src/app/tiltScreen.ts): the garage layout with the big gauge on top ---- */
+.tilt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.pf-gauge > span {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 50%;
-  transform-origin: left center;
-  transform: scaleX(var(--x, 0));
-  background: var(--accent-2);
+/* In a row the gauge stretches (styles.css); here it is a block of its own height. */
+.tilt-panel > .tilt-gauge {
+  flex: none;
+}
+.tilt-grid .pf-glabel {
+  white-space: nowrap;
+}
+.tilt-grid .tilt-val {
+  width: 5.6em;
+  text-align: right;
+}
+.tilt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+.tilt-actions .btn {
+  flex-shrink: 0;
 }
 .pf-switches {
   display: flex;
@@ -427,18 +468,22 @@
      tab row    30 (13px text + 2x6 pad + 2 border)     + 6 gap = 36
      panel: 2x10 padding + 2 border = 22, so content may use 340 - 39 - 36 - 22 = 243
        driver: max(avatar 84, input 33 + 6 + buttons 28 + 6 + note 2x16) = 105
-       car:    label 16 + 6 + swatches 24 + 12 + label 16 + 6 + bodies 50 + 6 + note 16 = 152
-       controls (touch, tilt chosen): rows camera, steering, pedals, tilt 4 x 30 + 3 x 6 = 138,
-         + 6 + switches (two side by side) 26 = 170; without tilt 134; no touchscreen 62
+       vehicle (car): label 16 + 6 + vehicles 50 + 6 + label 6+16 + 6 + swatches 24 + 6 + look row 6+18 + 6
+         + bodies 50 + 6 + note 16 = 238; bike or truck (look row, no body styles, a two-line note) 192
+       controls (touch, tilt chosen): rows camera, steering, pedals, tilt, traction 5 x 30 + 4 x 6
+         = 174, + 6 + switches (four, two side by side: 2 rows of 28 + 2) 58 = 238; without tilt 202;
+         no touchscreen (camera, traction; three switches) 130
        controls width: 332 - label column ~62 - gap 10 leaves 260 for a row:
-         Buttons / Wheel / Tilt ~190; minus, 9, plus, Recentre ~150 + 4 x 6 gaps leaves the gauge ~80
+         Buttons / Wheel / Tilt ~190; tilt: slider (min 110) + 1.0-9.0 26 + More... 54 + 2 x 6 gaps = 202
+       tilt steering screen: gauge 30 + 6 + 4 slider rows 4 x 30 + 3 x 6 = 138 + 6 + Recentre and
+         switches 28 + 4 + 28 = 242; a row: label ~76 + 10 + slider + 8 + value 5.6em ~73 leaves the slider ~157
        setup (no tabs, so +36): identity 105 + 10 + button 38 + 6 + note 3x16 = 207
    Width budget at 640: column 358, panel content 358 - 2x12 - 2 = 332
      header: Back 70 + Done 56 + gaps 3x8 leaves 182 for the h2 (20px, "Driver profile" ~160);
        setup: Skip 52 + gaps 16 leaves 290 ("New: your driver profile" ~275, else ellipsis)
      identity: avatar 84 + gap 12 leaves 236; Gallery/Camera/Remove ~66+68+68 + 2x6 gaps = 214
      swatches: up to 9 x 24 + 8 x 5 = 256 (8 stock colours + a custom one)
-     bodies: 3 x ~103 with 2 x 8 gaps; the 64px icon fits each
+     bodies: 4 x ~77 with 3 x 8 gaps; the 56px icon fits each (vehicles: 3 x ~103)
    The name field ends near y 130 (edit) or y 95 (setup), above a landscape keyboard. */
 @media (max-height: 520px) {
   .screen.profile {
@@ -461,6 +506,7 @@
   .pf-tabs .btn.small,
   .seg .btn.small,
   .pf-tilt .btn.small,
+  .tilt-actions .btn.small,
   .pf-photo-btns .btn.small {
     padding: 6px 8px;
     font-size: 13px;
@@ -508,12 +554,22 @@
   }
   .pf-switches {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 2px 10px;
   }
   .pf-switch {
+    min-width: 0;
     font-size: 13px;
     padding: 3px 0;
+  }
+  /* One line each whatever the font's widths (Roboto on Android is wider than Segoe UI): a
+     wrapped label or note would break the height budget above. */
+  .pf-switch > span:last-child,
+  .body-note.one-line {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .setup-go {
     margin-top: 10px;

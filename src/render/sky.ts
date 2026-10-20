@@ -33,6 +33,9 @@ export function makeBackground(): THREE.Color {
   return SKY.horizon.clone();
 }
 
+/** The sky dome's render order: after every other opaque object (see skyMesh). */
+export const SKY_RENDER_ORDER = 1000;
+
 /** Gradient dome with a sun glow and a thin layer of cumulus (one texture fetch). */
 export function skyMesh(): THREE.Mesh {
   const geo = new THREE.SphereGeometry(3500, 32, 16);
@@ -66,7 +69,10 @@ export function skyMesh(): THREE.Mesh {
   });
   const sky = new THREE.Mesh(geo, mat);
   sky.frustumCulled = false;
-  sky.renderOrder = -1;
+  // Last of the opaque objects: it sits on the far plane (z = w), so the depth test skips every
+  // pixel the ground, stands and hills already cover instead of shading the whole screen first.
+  // Transparents draw after all opaques anyway.
+  sky.renderOrder = SKY_RENDER_ORDER;
   return sky;
 }
 

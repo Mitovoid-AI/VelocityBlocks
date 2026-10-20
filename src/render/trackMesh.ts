@@ -82,6 +82,21 @@ export interface VisualOptions {
   ghostColor?: number;
   /** Skip pillars and banners (cheap previews). */
   light?: boolean;
+  /**
+   * Lambert instead of Standard on the road, kerbs, skirts, banks and barriers (the Low tier,
+   * QualityProfile.cheapGround): the biggest surfaces on screen get the cheapest lit shader. They are
+   * rough and non-metallic, so the diffuse look barely changes.
+   */
+  cheap?: boolean;
+}
+
+/** A road surface material: Standard, or with `cheap` a Lambert with the same map, colour and vertex colours. */
+function surfaceMaterial(cheap: boolean | undefined, params: THREE.MeshStandardMaterialParameters): THREE.Material {
+  if (!cheap) return new THREE.MeshStandardMaterial(params);
+  const m = new THREE.MeshLambertMaterial();
+  m.map = params.map ?? null;
+  m.vertexColors = params.vertexColors ?? false;
+  return m;
 }
 
 /** Rows of vertices along a block (curves and slopes need more). */
@@ -97,6 +112,42 @@ function at(blk: PlacedBlock, s: number, d: number, yoff: number): [number, numb
   const rb = -c.ta;
   const w = blk.toWorld(c.a + ra * d, c.b + rb * d);
   return [w.x, blk.baseY + blk.def.height(s) + yoff, w.z];
+}
+
+/**
+ * A block end (s = 0 or its length) as a key: the centre point and deck height to the centimetre. Block
+ * ends sit on cell-edge midpoints at whole levels (or a ramp lip), far from any rounding boundary, and two
+ * ends that meet share a cross-section, since both centre lines cross the shared cell edge square on.
+ */
+function endKey(blk: PlacedBlock, s: number): string {
+  const c = blk.centerWorld(s);
+  return `${Math.round(c.x * 100)},${Math.round(c.y * 100)},${Math.round(c.z * 100)}`;
+}
+
+/**
+ * Side barriers of every block (where the physics has them: track.ts barrierRange, every road with
+ * Track.walls), and a test for a block end where a barrier runs on into the next block. Only open ends get
+ * end caps: a jump gap, the start and finish, a barrier stopping mid-slope. Caps at joints would sit back to
+ * back unseen, and are most of a straight's barrier triangles (64 of 92).
+ */
+export function barrierPlan(track: Track): {
+  ranges: ([number, number] | null)[];
+  joined: (blk: PlacedBlock, s: number) => boolean;
+} {
+  const ranges = track.blocks.map((b) => barrierRange(b, track.walls));
+  const ends = new Map<string, number>();
+  const mark = (k: string) => ends.set(k, (ends.get(k) ?? 0) + 1);
+  track.blocks.forEach((b, n) => {
+    const r = ranges[n];
+    if (!r) return;
+    const L = b.def.length;
+    if (r[0] === 0) mark(endKey(b, 0));
+    if (r[1] === L) mark(endKey(b, L));
+  });
+  return {
+    ranges,
+    joined: (blk, s) => (s === 0 || s === blk.def.length) && (ends.get(endKey(blk, s)) ?? 0) > 1,
+  };
 }
 
 /** Grey vertex colour on a whole geometry, or a per-vertex shade from its position. */
@@ -246,6 +297,7 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
   const pillarGeos: THREE.BufferGeometry[] = [];
   const gates = new Map<string, GatePart>();
   const edge = DECK_EDGE;
+  const walls = barrierPlan(track);
 
   for (const blk of track.blocks) {
     const L = blk.def.length;
@@ -254,8 +306,9 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
     const rows = n;
     // Embankments (slopes and ramps rising from the floor) are solid down to the ground.
     const floorOff = (s: number) => -(blk.baseY + blk.def.height(s)) - 0.05;
-    // Barriers only where the deck is high enough to fall from; the deck and kerbs darken next to them.
-    const br = barrierRange(blk);
+    // Barriers where the deck is high enough to fall from, or on every road with walls on all roads (the
+    // physics' rule); the deck and kerbs darken next to them.
+    const br = walls.ranges[blk.index];
     const walled = (s: number) => br !== null && s >= br[0] - 0.5 && s <= br[1] + 0.5;
 
     // Deck top (u across, v along; one texture tile per 16 m). Four columns: the outer ones carry
@@ -331,7 +384,8 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
       }
     }
 
-    // Barriers: inner face, rounded top, outer face on each side, only where the deck is high enough to fall from.
+    // Barriers: inner face, rounded top, outer face on each side, along the barrier range. The physics wall
+    // line is the same: inner face at WALL_OFF, outer at the deck edge, WALL_H tall.
     if (br) {
       const [s0, s1] = br;
       const nb = Math.max(2, Math.ceil(((n - 1) * (s1 - s0)) / L) + 1);
@@ -355,8 +409,10 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
           const p = at(blk, SB(r), side * edge, c === 0 ? 0 : WALL_H);
           return [...p, SB(r) / 8, c, c === 0 ? 0.8 : 1];
         }, !flip);
-        // End caps following the rounded profile, so a barrier that starts or stops mid-block reads as solid.
+        // End caps following the rounded profile, so a barrier that starts or stops (mid-block, at a jump
+        // gap, the start or the finish) reads as solid. None where it runs on into the next block.
         for (const s of [s0, s1]) {
+          if (walls.joined(blk, s)) continue;
           for (const capFlip of [false, true]) {
             barrier.grid(2, 5, (r, c) => {
               const p = at(blk, s, side * capD(c), r === 0 ? 0 : capY(c));
@@ -404,17 +460,18 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
   const mats = {
     deck:
       ghostMat ??
-      new THREE.MeshStandardMaterial({
+      surfaceMaterial(opts.cheap, {
         map: roadTexture(),
-        roughnessMap: roadRoughness(),
+        // The roughness map only matters to Standard: Lambert leaves it unloaded.
+        roughnessMap: opts.cheap ? null : roadRoughness(),
         roughness: 1,
         metalness: 0.0,
         vertexColors: true,
       }),
-    kerb: ghostMat ?? new THREE.MeshStandardMaterial({ map: kerbTexture(), roughness: 0.7, vertexColors: true }),
-    skirt: ghostMat ?? new THREE.MeshStandardMaterial({ map: concreteTexture(), roughness: 0.95, vertexColors: true }),
-    bank: ghostMat ?? new THREE.MeshStandardMaterial({ map: turfTexture(), roughness: 1, vertexColors: true }),
-    barrier: ghostMat ?? new THREE.MeshStandardMaterial({ map: barrierTexture(), roughness: 0.55, vertexColors: true }),
+    kerb: ghostMat ?? surfaceMaterial(opts.cheap, { map: kerbTexture(), roughness: 0.7, vertexColors: true }),
+    skirt: ghostMat ?? surfaceMaterial(opts.cheap, { map: concreteTexture(), roughness: 0.95, vertexColors: true }),
+    bank: ghostMat ?? surfaceMaterial(opts.cheap, { map: turfTexture(), roughness: 1, vertexColors: true }),
+    barrier: ghostMat ?? surfaceMaterial(opts.cheap, { map: barrierTexture(), roughness: 0.55, vertexColors: true }),
     // Pads are lit signs: shown at their true colours, not tone-mapped.
     boost:
       ghostMat ??

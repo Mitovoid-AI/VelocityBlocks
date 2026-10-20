@@ -36,6 +36,7 @@
   --t-bar-gap: 20px;
   --t-bar-h: clamp(100px, min(44vh, calc(100vh - var(--ctl-b) - 156px)), 190px);
   --t-wheel: clamp(120px, min(24vw, calc(100vh - var(--ctl-b) - 120px)), 184px);
+  --t-nitro: clamp(56px, 10vw, 76px);
 }
 
 * {
@@ -268,6 +269,93 @@ body {
   width: 0;
   background: linear-gradient(90deg, #33ff77, #ffcf3f, #ff4433);
 }
+/* The nitro for keyboard and controller players (Hud.nitro): the same ring as the touch button. */
+.hud-nitro {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  font-style: normal;
+  letter-spacing: 0.06em;
+}
+.hud-nitro kbd {
+  min-width: 0;
+  padding: 0 5px;
+  font-size: 11px;
+}
+.hud-nitro .n-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: conic-gradient(var(--n-col, #b07cff) calc(var(--p, 1) * 360deg), rgba(255, 255, 255, 0.18) 0);
+}
+.hud-nitro .n-ring::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: rgba(10, 16, 34, 0.75);
+}
+.hud-nitro .n-sec {
+  position: relative;
+  font-size: 11px;
+}
+.hud-nitro.n-ready .n-ring {
+  box-shadow: 0 0 10px rgba(176, 124, 255, 0.75);
+}
+.hud-nitro.n-boost {
+  --n-col: #eadfff;
+}
+.hud-nitro.n-charge {
+  --n-col: rgba(63, 224, 255, 0.85);
+}
+.hud-nitro.n-charge .hud-nitro-txt {
+  opacity: 0.6;
+}
+.hud-nitro.n-armed .n-ring {
+  box-shadow: 0 0 14px rgba(234, 223, 255, 0.95);
+}
+body.touch .hud-nitro {
+  display: none;
+}
+/* Tilt steering (Hud.tilt): -1..1 from the white straight-ahead mark (a negative scale grows left). */
+.hud-tilt {
+  position: relative;
+  width: 140px;
+  height: 6px;
+  margin: 0 auto 7px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.hud-tilt > span {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  transform-origin: left center;
+  transform: scaleX(var(--x, 0));
+  background: var(--accent-2);
+}
+.hud-tilt::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: #fff;
+}
 body.touch .hud-br {
   bottom: auto;
   top: calc(64px + var(--safe-t));
@@ -478,10 +566,133 @@ body.touch .hud-br {
   right: auto;
   left: var(--ctl-l);
 }
-/* Portrait browser windows: the timer moves above the controls. */
+
+/* Nitro (TouchControls.bindNitro; Hud.nitro sets n-ready / n-boost / n-charge / n-armed and --p,
+   the ring). On the left, above or beside the inner side of the steering, where the left thumb is
+   free on a straight; the right thumb stays on the gas. Inside the --ctl-* insets in every layout,
+   and clear of the timer, the HUD lines, the pills and the flip warning at 640x360, 800x360,
+   1067x600 and 360x740 (the 3-2-1 digits may pass over it). Only the tilt + auto-accelerate place
+   is edge-anchored, so only there does TouchControls give it data-edge-guard. No continuous
+   animation: the ring is a conic-gradient redrawn when --p changes. */
+#touch .t-nitro {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  width: var(--t-nitro);
+  height: var(--t-nitro);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  font: italic 900 15px var(--font);
+  background: conic-gradient(var(--n-col, #b07cff) calc(var(--p, 1) * 360deg), rgba(255, 255, 255, 0.16) 0);
+  transition: transform 0.08s;
+  /* Buttons: over the right-hand steering button. */
+  left: calc(var(--ctl-l) + var(--t-pad) + 14px + (var(--t-pad) - var(--t-nitro)) / 2);
+  bottom: calc(var(--ctl-b) + var(--t-pad) + 16px);
+}
+.t-nitro::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: rgba(10, 16, 34, 0.6);
+}
+.t-nitro > span {
+  position: relative;
+  pointer-events: none;
+}
+.t-nitro sub {
+  font-size: 0.6em;
+}
+.t-nitro .n-sec {
+  font-size: 22px;
+  font-style: normal;
+}
+.t-nitro.n-ready {
+  box-shadow: 0 0 14px rgba(176, 124, 255, 0.65);
+}
+.t-nitro.n-ready::before {
+  background: rgba(120, 70, 220, 0.6);
+}
+.t-nitro.n-boost {
+  --n-col: #eadfff;
+}
+.t-nitro.n-boost::before {
+  background: rgba(176, 124, 255, 0.85);
+}
+.t-nitro.n-charge {
+  --n-col: rgba(63, 224, 255, 0.85);
+}
+/* Recharging: the seconds left take the label's place. */
+.t-nitro.n-charge .t-nitro-label {
+  display: none;
+}
+.t-nitro.n-armed {
+  box-shadow: 0 0 20px rgba(234, 223, 255, 0.9);
+}
+.t-nitro.n-armed::before {
+  background: rgba(176, 124, 255, 0.9);
+}
+.t-nitro.pressing {
+  transform: scale(0.94);
+}
+.t-nitro.pop,
+.hud-nitro.pop .n-ring {
+  animation: nitro-pop 0.35s ease-out;
+}
+.t-nitro.deny,
+.hud-nitro.deny .n-ring {
+  animation: nitro-deny 0.25s;
+}
+@keyframes nitro-pop {
+  0% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes nitro-deny {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+/* Wheel: beside the wheel, level with its hub (higher, it would meet the flip warning at 640x360). */
+#touch.steer-wheel .t-nitro {
+  left: calc(var(--ctl-l) + var(--t-wheel) + 12px);
+  bottom: calc(var(--ctl-b) + (var(--t-wheel) - var(--t-nitro)) / 2);
+}
+/* Tilt: the brake is on the left, so beside its top (bar) or beside it (round button). */
+#touch.steer-tilt:not(.auto-gas) .t-nitro {
+  left: calc(var(--ctl-l) + var(--t-bar-w) + 20px);
+  bottom: calc(var(--ctl-b) + var(--t-bar-h) - var(--t-nitro));
+}
+#touch.steer-tilt.pedals-buttons:not(.auto-gas) .t-nitro {
+  left: calc(var(--ctl-l) + var(--t-pad) + 14px);
+  bottom: calc(var(--ctl-b) + (var(--t-pad) - var(--t-nitro)) / 2);
+}
+/* Tilt with auto-accelerate: the bottom-left corner is free. */
+#touch.steer-tilt.auto-gas .t-nitro {
+  left: var(--ctl-l);
+  bottom: var(--ctl-b);
+}
+/* Portrait browser windows: the timer moves above the controls, and beside the wheel the Nitro
+   would meet the brake bar, so it goes above the wheel. */
 @media (max-aspect-ratio: 1/1) {
   body.touch .hud-bottom {
     bottom: calc(var(--ctl-b) + var(--t-bar-h) + 8px);
+  }
+  #touch.steer-wheel .t-nitro {
+    left: calc(var(--ctl-l) + (var(--t-wheel) - var(--t-nitro)) / 2);
+    bottom: calc(var(--ctl-b) + var(--t-wheel) + 16px);
   }
 }
 /* While racing on a touchscreen a toast sits under the pills, clear of the controls, the timer
@@ -675,12 +886,43 @@ body.touch .hud-br {
   font-weight: 900;
   font-size: 28px;
 }
+/* Campaign and My tracks: chips and the Car / Bike / Truck switch wrap under a narrow window. */
+.header.campaign-head {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.header .veh-seg .btn {
+  flex: 0 0 auto;
+  min-width: 56px;
+}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 18px;
   backdrop-filter: blur(6px);
+}
+/* Phones and tablets: no blur. The 3D view keeps drawing behind the pause and results panels, and a
+   backdrop blur over it is redone every frame on the GPU; at 86% opacity it barely shows anyway. */
+body.touch .panel {
+  backdrop-filter: none;
+  background: rgba(12, 18, 38, 0.9);
+}
+/* Settings > Credits: long source URLs wrap anywhere rather than widen the panel. */
+.panel.credits {
+  overflow-y: auto;
+  max-height: 100%;
+}
+.credits p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.credits .credit {
+  margin-top: 14px;
+}
+.credits h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
 }
 .grid {
   display: grid;
@@ -757,6 +999,7 @@ body.touch .hud-br {
   border: 1px solid #444;
 }
 .medal {
+  position: relative;
   display: inline-block;
   width: 14px;
   height: 14px;
@@ -765,29 +1008,63 @@ body.touch .hud-br {
   margin-right: 4px;
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25);
 }
-.medal-big {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  box-shadow:
-    inset 0 -6px 0 rgba(0, 0, 0, 0.25),
-    0 0 24px rgba(255, 255, 255, 0.25);
-  margin: 0 auto 8px;
+/* The author medal before it is earned. The "?" is drawn outside the flow, so the dot keeps the
+   same baseline as the empty medal dots beside it. */
+.medal-secret {
+  background: #26304f;
+  box-shadow: inset 0 0 0 1px rgba(63, 224, 255, 0.6);
+}
+.medal-secret::after {
+  content: '?';
+  position: absolute;
+  inset: 0;
+  color: #cfd8f0;
+  font: normal 900 10px/14px var(--font);
+  text-align: center;
+  text-shadow: none;
+}
+.secret {
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+}
+/* Read-only tags: "Walls on", the vehicle class. */
+.chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid rgba(63, 224, 255, 0.55);
+  border-radius: 999px;
+  color: var(--accent-2);
+  font-size: 11px;
+  font-weight: 800;
+  font-style: normal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+/* "BIKE", "WALLS" under the HUD's medal line (left of the race pills, and below them at 640x360). */
+.hud-tags {
+  margin-top: 3px;
+  line-height: 1;
+}
+.hud-tags:empty {
+  display: none;
+}
+.hud-chip {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 2px 5px;
+  border-radius: 6px;
+  background: rgba(6, 10, 24, 0.55);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .result {
   margin: auto;
   width: min(460px, 94vw);
   text-align: center;
-}
-.result .time {
-  font-size: 54px;
-  font-weight: 900;
-  font-style: italic;
-  font-variant-numeric: tabular-nums;
-}
-.result .delta {
-  font-weight: 800;
-  font-size: 18px;
 }
 /* Pause menu: what paused the race, and a diagnostics line for bug-report screenshots. */
 .pause-why {
@@ -807,26 +1084,6 @@ body.touch .hud-br {
 .behind {
   color: var(--bad);
 }
-.medals-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 12px 0;
-  font-variant-numeric: tabular-nums;
-}
-.medals-table td {
-  padding: 4px 6px;
-  text-align: left;
-}
-.medals-table td:last-child {
-  text-align: right;
-}
-.medals-table tr.hit td {
-  color: #fff;
-  font-weight: 800;
-}
-.medals-table tr:not(.hit) td {
-  color: var(--muted);
-}
 .form {
   display: grid;
   grid-template-columns: minmax(130px, 200px) 1fr;
@@ -837,6 +1094,10 @@ body.touch .hud-br {
 .form label {
   color: var(--muted);
   font-weight: 600;
+}
+.form-note {
+  margin-top: 4px;
+  font-size: 12px;
 }
 select,
 input[type='text'] {
@@ -855,6 +1116,162 @@ input[type='checkbox'] {
   width: 22px;
   height: 22px;
   accent-color: var(--accent);
+}
+/* Drag slider (src/ui/slider.ts): --p is 0..1. A vertical swipe on it, the thumb included, still
+   scrolls the screen (pan-y); only a sideways one drags. The thumb's hit area is bigger than it looks. */
+.vb-slider {
+  position: relative;
+  flex: 1 1 140px;
+  min-width: 110px;
+  height: 30px;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+  outline: none;
+}
+.vs-track {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+.vs-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(var(--p, 0));
+  background: var(--accent);
+}
+.vs-thumb {
+  position: absolute;
+  top: 3px;
+  left: calc(12px + var(--p, 0) * (100% - 24px));
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  touch-action: pan-y;
+  transition: transform 0.1s;
+}
+.vs-thumb::before {
+  content: '';
+  position: absolute;
+  inset: -8px -10px;
+}
+.vb-slider.dragging .vs-thumb {
+  transform: scale(1.15);
+}
+.vb-slider:focus-visible .vs-thumb {
+  box-shadow:
+    0 0 0 3px var(--accent-2),
+    0 1px 4px rgba(0, 0, 0, 0.5);
+}
+/* A slider or gauge with its value and buttons (Settings, the Tilt steering screen). */
+.tilt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tilt-row .btn {
+  flex-shrink: 0;
+}
+.tilt-val {
+  min-width: 3.4em;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Live tilt gauge (app/tiltUi.ts): the needle is the tilt, the fill the steering it gives (it
+   reaches the yellow full-lock marks at full lock), the light band the dead zone. Moved with
+   transforms and calc() only, so a frame never lays the page out again. */
+.tilt-gauge {
+  flex: 1 1 120px;
+  min-width: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tg-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.tg-dead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - var(--dead, 0) * 50%);
+  width: calc(var(--dead, 0) * 100%);
+  background: rgba(255, 255, 255, 0.2);
+}
+.tg-lock {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 207, 63, 0.9);
+}
+.tg-lock.l {
+  left: calc(50% - var(--lock, 0.5) * 50%);
+}
+.tg-lock.r {
+  left: calc(50% + var(--lock, 0.5) * 50%);
+}
+.tg-fill {
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  bottom: 2px;
+  width: 50%;
+  transform-origin: left center;
+  transform: scaleX(var(--fill, 0));
+  background: var(--accent-2);
+}
+.tg-needle {
+  position: absolute;
+  inset: 0;
+  transform: translateX(calc(var(--needle, 0) * 50%));
+}
+.tg-needle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #fff;
+}
+.tg-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tilt-gauge.big .tg-bar {
+  height: 14px;
+  border-radius: 7px;
+}
+.tilt-gauge.big .tg-text {
+  font-size: 13px;
+  color: var(--text);
 }
 .swatches {
   display: flex;
@@ -1038,6 +1455,10 @@ kbd {
 .list-item .title {
   font-weight: 800;
 }
+.walls-warn {
+  font-size: 12px;
+  color: var(--gold);
+}
 
 @media (max-width: 720px), (max-height: 480px) {
   .ed-palette {
@@ -1082,7 +1503,13 @@ kbd {
   /* Pause menu: Resume across the top, then two buttons a row, so the Steering row fits 360px. */
   .result .menu-list.pause-list {
     grid-template-columns: 1fr 1fr;
+    gap: 6px;
     min-width: 0;
+  }
+  /* About 14px to spare at 360 (Resume, Steering and Recentre tilt on a touchscreen) for a
+     diagnostics line that wraps once more in another font. */
+  .menu-list.pause-list .btn {
+    padding: 8px 12px;
   }
   .header {
     margin-bottom: 8px;
@@ -1099,21 +1526,6 @@ kbd {
   }
   .panel {
     padding: 12px;
-  }
-  .result .time {
-    font-size: 36px;
-  }
-  .medal-big {
-    width: 36px;
-    height: 36px;
-    margin-bottom: 4px;
-  }
-  .medals-table {
-    margin: 4px 0;
-    font-size: 13px;
-  }
-  .medals-table td {
-    padding: 1px 6px;
   }
   .result .row {
     margin-top: 8px !important;
@@ -1134,5 +1546,450 @@ kbd {
   .hud-flip {
     font-size: 15px;
     padding: 4px 12px 6px;
+  }
+}
+
+/* ---------- Results card (src/ui/scoreCard.ts) ----------
+   After the short-landscape block on purpose: .score's own padding must win over its
+   `.panel { padding: 12px }`. Effects that leave a box (ring, confetti) live in .sc-fx, which is
+   clipped to the screen; pops inside a slot stay inside its clipped disc; the headline pops as an
+   inline-block, so nothing animated can make the screen scroll (checked 360x640 to 1600x900).
+   WebView 110 safe: no color-mix, linear() easing, animation-composition or @starting-style. */
+.screen.score-screen {
+  overflow-x: hidden;
+}
+.sc-wrap {
+  flex: 1 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sc-fx {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+.score {
+  position: relative;
+  width: min(560px, 100%);
+  text-align: center;
+  padding: clamp(12px, 3vh, 22px) clamp(12px, 3vw, 24px);
+}
+.sc-track {
+  font-size: 14px;
+}
+.sc-track .chip {
+  margin-left: 6px;
+  font-size: 10px;
+  padding: 1px 6px;
+}
+.sc-banner + .sc-track {
+  margin-top: 8px;
+}
+.sc-time {
+  font-size: clamp(36px, 12vh, 76px);
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.sc-delta {
+  font-weight: 800;
+  font-size: clamp(14px, 2.6vh, 18px);
+  font-variant-numeric: tabular-nums;
+}
+.sc-headline {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 6px;
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: clamp(16px, 3.6vh, 26px);
+}
+.sc-headline.author {
+  background: linear-gradient(90deg, #3fe0ff, #ffffff 45%, #3fe0ff 55%, #7f9bff);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  .sc-headline.author {
+    background: none;
+    color: var(--accent-2);
+  }
+}
+.sc-hint,
+.sc-resp {
+  font-size: 13px;
+}
+.sc-author-line {
+  color: var(--accent-2);
+  font-weight: 800;
+}
+.sc-medals {
+  display: flex;
+  justify-content: center;
+  gap: clamp(8px, 2vw, 18px);
+  margin-top: clamp(8px, 2vh, 14px);
+}
+.sc-slot {
+  --s: clamp(36px, 11vh, 68px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: var(--s);
+}
+.sc-disc {
+  position: relative;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 2px var(--c);
+}
+.sc-slot:not(.hit) .sc-disc {
+  opacity: 0.45;
+}
+/* A medal held from an earlier run that this one missed: a double outline, not an empty slot. */
+.sc-slot.best:not(.hit) .sc-disc {
+  opacity: 0.8;
+  box-shadow:
+    inset 0 0 0 2px var(--c),
+    inset 0 0 0 5px rgba(6, 10, 24, 0.8),
+    inset 0 0 0 7px var(--c);
+}
+.sc-slot.hit.on .sc-disc {
+  box-shadow:
+    inset 0 0 0 2px var(--c),
+    0 0 16px var(--c);
+}
+.sc-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  transform: scale(0);
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.55) 0 14%, transparent 15%),
+    var(--c);
+  box-shadow: inset 0 calc(var(--s) * -0.1) 0 rgba(0, 0, 0, 0.25);
+}
+.sc-slot.hit.on .sc-fill {
+  transform: none;
+}
+.sc-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-130%);
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.9) 50%, transparent 65%);
+}
+.sc-t {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sc-slot.hit.on .sc-t {
+  color: #fff;
+  font-weight: 800;
+}
+.sc-new {
+  position: absolute;
+  top: -6px;
+  right: -12px;
+  font-size: 9px;
+  font-weight: 900;
+  padding: 1px 4px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #1a0d05;
+  opacity: 0;
+  pointer-events: none;
+}
+.sc-slot.set .sc-new {
+  background: var(--accent-2);
+}
+.sc-slot.fresh.on .sc-new,
+.sc-slot.set.on .sc-new {
+  opacity: 1;
+}
+.sc-q {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: calc(var(--s) * 0.5);
+  color: var(--muted);
+}
+.sc-slot.m4:not(.secret) .sc-q {
+  display: none;
+}
+.sc-banner {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -55%) rotate(-3deg);
+  padding: 3px 14px;
+  border-radius: 8px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  font-size: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.sc-banner.record {
+  background: linear-gradient(90deg, #ff6a3d, #ffcf3f);
+  color: #1a0d05;
+}
+.sc-banner.first {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+}
+.sc-actions {
+  justify-content: center;
+  margin-top: clamp(10px, 2.5vh, 18px);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Parts the cues bring in start hidden, only while animating (the final state needs no class). */
+.sc-anim .sc-delta:not(.on),
+.sc-anim .sc-headline:not(.on),
+.sc-anim .sc-hint:not(.on),
+.sc-anim .sc-banner:not(.on) {
+  opacity: 0;
+}
+.sc-anim .sc-delta.on,
+.sc-anim .sc-hint.on {
+  animation: sc-rise 0.3s ease-out both;
+}
+.sc-anim .sc-headline.on {
+  animation: sc-pop-text 0.45s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+.sc-anim .sc-headline.author.on {
+  animation:
+    sc-pop-text 0.45s cubic-bezier(0.2, 1.5, 0.4, 1) both,
+    sc-sheen 1.4s 0.45s linear 2;
+}
+.sc-anim .sc-slot.hit.on .sc-fill {
+  animation: sc-pop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.sc-anim .sc-slot.on .sc-fill::after {
+  animation: sc-shine 0.8s 0.3s ease-out both;
+}
+.sc-anim .sc-slot.fresh.on .sc-new,
+.sc-anim .sc-slot.set.on .sc-new {
+  animation: sc-pop 0.35s 0.2s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+/* The secret slot looks the same whether or not this run has won it (dim, like a missed medal)
+   until the charge-up, which brightens it. */
+.sc-anim .sc-slot.secret:not(.charge) .sc-disc {
+  opacity: 0.45;
+}
+.sc-anim .sc-slot.m4.charge .sc-disc {
+  animation: sc-charge 0.55s ease-in both;
+}
+.sc-anim .sc-slot.m4.on:not(.set) .sc-fill {
+  animation: sc-flip 0.5s 0.05s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+.sc-anim .sc-banner.on {
+  animation: sc-stamp 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+/* A repeat run: the medals are simply there. A skip: everything at its end at once. */
+.sc-quiet .sc-slot *,
+.sc-quiet .sc-slot *::after,
+.sc-done *,
+.sc-done *::before,
+.sc-done *::after {
+  animation: none !important;
+}
+@keyframes sc-pop {
+  0% {
+    transform: scale(0);
+  }
+  60% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes sc-pop-text {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes sc-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sc-shine {
+  from {
+    transform: translateX(-130%);
+  }
+  to {
+    transform: translateX(130%);
+  }
+}
+@keyframes sc-sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+@keyframes sc-charge {
+  0% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  60% {
+    transform: scale(1.12) rotate(-8deg);
+    box-shadow:
+      inset 0 0 0 2px var(--c),
+      0 0 26px var(--c);
+  }
+  80% {
+    transform: scale(1.1) rotate(8deg);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow:
+      inset 0 0 0 2px var(--c),
+      0 0 26px var(--c);
+  }
+}
+/* A 2D coin flip (scaleX): no 3D transforms over the WebGL canvas. */
+@keyframes sc-flip {
+  0% {
+    transform: scaleX(0);
+  }
+  60% {
+    transform: scale(1.15, 1.1);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes sc-stamp {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -55%) rotate(-3deg) scale(2.2);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -55%) rotate(-3deg) scale(1);
+  }
+}
+.sc-fx i {
+  position: absolute;
+  width: 7px;
+  height: 11px;
+  margin: -5px 0 0 -3px;
+  border-radius: 2px;
+  background: var(--c);
+  opacity: 0;
+  animation: sc-confetti var(--t) cubic-bezier(0.12, 0.7, 0.3, 1) var(--d) forwards;
+}
+/* --s (the disc size) is set inline: .sc-fx is not inside the slot. */
+.sc-fx i.ring {
+  width: var(--s);
+  height: var(--s);
+  margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  border-radius: 50%;
+  background: none;
+  border: 3px solid #3fe0ff;
+  animation: sc-ring 0.7s ease-out forwards;
+}
+@keyframes sc-confetti {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  45% {
+    opacity: 1;
+    transform: translate(calc(var(--dx) * 0.7), var(--up)) rotate(calc(var(--r) * 0.5));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), calc(var(--up) + var(--fall))) rotate(var(--r));
+  }
+}
+@keyframes sc-ring {
+  from {
+    opacity: 1;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+/* Short landscape phones (640x360, 800x360): time and text left, the medals right, one button row. */
+@media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+  .score {
+    width: min(620px, 100%);
+  }
+  .sc-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 18px;
+    align-items: center;
+    text-align: left;
+  }
+  .sc-medals {
+    margin-top: 0;
+  }
+  .sc-actions .btn {
+    padding: 9px 12px;
+    font-size: 15px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .score *,
+  .score *::before,
+  .score *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .sc-fx {
+    display: none;
+  }
+  /* The nitro's pop and shake; its ring and colours still say ready, boosting or recharging. */
+  .t-nitro,
+  .hud-nitro .n-ring {
+    animation: none !important;
   }
 }

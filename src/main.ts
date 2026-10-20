@@ -41,4 +41,6 @@ async function boot(): Promise<App | null> {
 void boot().then((app) => {
   // Expose for debugging in development builds only.
   if (import.meta.env.DEV && app) (window as unknown as { vb: App }).vb = app;
+  // window.vbScore('author' | 'gold' | 'none' | 'first' | 'held' | 'editor' | 'walls'): the results card with sample runs.
+  if (import.meta.env.DEV) void import('./ui/scoreCardPreview').then((p) => p.install());
 });

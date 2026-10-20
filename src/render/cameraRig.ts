@@ -1,9 +1,13 @@
 // Chase, far and hood cameras for driving, plus a slow orbit for menus and replays and a
-// close garage orbit for the profile editor.
+// close garage orbit for the profile editor. Distances follow the vehicle class (CameraRig.vehicle).
 
 import * as THREE from 'three';
 import type { Quat, V3 } from '../core/vec';
+import type { VehicleClass } from '../core/vehicles';
+import { vehicleSpec } from '../physics/vehicle';
 import type { Track } from '../track/track';
+import { bikeEye } from './bikeMesh';
+import { truckEye } from './truckMesh';
 
 export type CamMode = 'chase' | 'far' | 'hood';
 export const CAM_MODES: CamMode[] = ['chase', 'far', 'hood'];
@@ -26,12 +30,82 @@ export function fitFov(v: number, aspect: number, keep = FOV_KEEP): number {
   return fitted + (v - fitted) * keep;
 }
 
+/** Camera placement for a vehicle class, in metres from its body centre. */
+export interface CamOffsets {
+  /** Hood (driver's eye): up and forward. */
+  readonly hood: readonly [number, number];
+  /** Chase and far: back and up; the camera looks 4 m ahead at `look` up. */
+  readonly chase: readonly [number, number];
+  readonly far: readonly [number, number];
+  readonly look: number;
+  /** Garage orbit: radius, height and the height it looks at. */
+  readonly showcase: readonly [number, number, number];
+}
+
+let offsets: Record<VehicleClass, CamOffsets> | null = null;
+
+/**
+ * Per-class offsets. The car's are the original ones. The bike's eye is just over the rider's helmet
+ * and the truck's in the cab behind the screen (both from their meshes, so nothing of the vehicle
+ * comes inside the near plane in view); their chase cameras sit closer (bike) or further back and
+ * higher (truck), so the box never hides the road ahead.
+ */
+export function camOffsets(vehicle: VehicleClass): CamOffsets {
+  if (!offsets) {
+    const bike = vehicleSpec('bike');
+    const truck = vehicleSpec('truck');
+    const be = bikeEye(bike);
+    const te = truckEye(truck);
+    offsets = {
+      car: { hood: [0.85, 0.4], chase: [7.2, 2.6], far: [10.5, 4.2], look: 1.1, showcase: [8.5, 1.7, 0.4] },
+      bike: { hood: [be.h - bike.rideHeight, be.z], chase: [6.4, 2.3], far: [9.6, 3.9], look: 0.95, showcase: [6.6, 1.35, 0.3] },
+      truck: { hood: [te.h - truck.rideHeight, te.z], chase: [9.6, 3.9], far: [13, 5.4], look: 1.7, showcase: [12, 2.6, 0.9] },
+    };
+  }
+  return offsets[vehicle] ?? offsets.car;
+}
+
+/** Share of the bike's lean the hood camera rolls with (a rider holds the head nearer level than the bike). */
+const HOOD_ROLL = 0.5;
+
+let leanCap = -1;
+/**
+ * Largest lean (rad) the bike's hood eye follows: its sideways travel about the ground line stays 5 cm
+ * inside the hull's half width (VehicleSpec.foot.w), so it cannot reach into a barrier the hull is against.
+ */
+export function hoodLeanMax(): number {
+  if (leanCap < 0) {
+    const S = vehicleSpec('bike');
+    const reach = camOffsets('bike').hood[0] + S.rideHeight;
+    leanCap = Math.asin(Math.min(1, (S.foot.w - 0.05) / reach));
+  }
+  return leanCap;
+}
+
 const tmp = new THREE.Vector3();
 const fwd = new THREE.Vector3();
 const up = new THREE.Vector3();
+const left = new THREE.Vector3();
+/** follow()'s scratch objects: it runs every frame, so it allocates nothing. */
+const quat = new THREE.Quaternion();
+const want = new THREE.Vector3();
+const lookAt = new THREE.Vector3();
 
 export class CameraRig {
   mode: CamMode = 'chase';
+  /** Vehicle class being followed (camera offsets per class). */
+  vehicle: VehicleClass = 'car';
+  /**
+   * The followed bike's drawn lean (CarView.lean, rad), set by the mode each frame: the hood camera
+   * rides with the rider's head and rolls half as much. Ignored for other classes; 0 = upright.
+   */
+  lean = 0;
+  /**
+   * Nitro push 0..1 (CarView.boost: 1 at the press, fading with the push, 0 after it), set by the mode each
+   * frame: a short FOV kick on the driving views (up to 8 degrees chase and far, 6 hood), eased in and out
+   * by setFov. Orbit, garage and trackside views ignore it.
+   */
+  boost = 0;
   private pos = new THREE.Vector3();
   private look = new THREE.Vector3();
   private init = false;
@@ -47,18 +121,32 @@ export class CameraRig {
   }
 
   follow(p: V3, q: Quat, vel: V3, dt: number, track: Track | null): void {
-    const quat = new THREE.Quaternion(q.x, q.y, q.z, q.w);
+    quat.set(q.x, q.y, q.z, q.w);
     fwd.set(0, 0, 1).applyQuaternion(quat);
     up.set(0, 1, 0).applyQuaternion(quat);
     const speed = Math.hypot(vel.x, vel.y, vel.z);
+    const o = camOffsets(this.vehicle);
 
     if (this.mode === 'hood') {
-      tmp.set(p.x, p.y, p.z).addScaledVector(up, 0.85).addScaledVector(fwd, 0.4);
+      const [hu, hf] = o.hood;
+      tmp.set(p.x, p.y, p.z).addScaledVector(fwd, hf);
+      const a = this.vehicle === 'bike' ? this.lean : 0;
+      if (a) {
+        // The eye leans with the bike about the ground line under the centre, but never further out than
+        // the hull (hoodLeanMax): leaning against a barrier, a full lean would put it inside the wall.
+        const rh = vehicleSpec('bike').rideHeight;
+        const e = Math.max(-hoodLeanMax(), Math.min(hoodLeanMax(), a));
+        left.set(1, 0, 0).applyQuaternion(quat);
+        tmp.addScaledVector(left, -(hu + rh) * Math.sin(e)).addScaledVector(up, (hu + rh) * Math.cos(e) - rh);
+        this.cam.up.copy(up).multiplyScalar(Math.cos(a * HOOD_ROLL)).addScaledVector(left, -Math.sin(a * HOOD_ROLL));
+      } else {
+        tmp.addScaledVector(up, hu);
+        this.cam.up.copy(up);
+      }
       this.cam.position.copy(tmp);
       this.look.copy(tmp).addScaledVector(fwd, 20).addScaledVector(up, 0.5);
-      this.cam.up.copy(up);
       this.cam.lookAt(this.look);
-      this.setFov(78 + Math.min(20, speed * 0.1));
+      this.setFov(78 + Math.min(20, speed * 0.1) + this.boost * 6);
       return;
     }
     this.cam.up.set(0, 1, 0);
@@ -78,10 +166,9 @@ export class CameraRig {
       hx /= l2;
       hz /= l2;
     }
-    const far = this.mode === 'far';
-    const dist = (far ? 10.5 : 7.2) + Math.min(2.5, speed * 0.02);
-    const height = far ? 4.2 : 2.6;
-    const want = new THREE.Vector3(p.x - hx * dist, p.y + height, p.z - hz * dist);
+    const [back, height] = this.mode === 'far' ? o.far : o.chase;
+    const dist = back + Math.min(2.5, speed * 0.02);
+    want.set(p.x - hx * dist, p.y + height, p.z - hz * dist);
     if (track) {
       // Off-road the car often stops at the perimeter facing inward: keep the camera inside
       // the stadium so the 3 m wall and the stands never hide the car. The wall's inner face
@@ -101,7 +188,7 @@ export class CameraRig {
       const top = track.embankTopAt(want.x, want.z);
       if (top !== null && want.y < top + 1.2) want.y = top + 1.2;
     }
-    const lookAt = new THREE.Vector3(p.x + hx * 4, p.y + 1.1, p.z + hz * 4);
+    lookAt.set(p.x + hx * 4, p.y + o.look, p.z + hz * 4);
     if (!this.init) {
       this.pos.copy(want);
       this.look.copy(lookAt);
@@ -122,7 +209,7 @@ export class CameraRig {
       this.shake = Math.max(0, this.shake - dt * 2.5);
     }
     this.cam.lookAt(this.look);
-    this.setFov(66 + Math.min(24, speed * 0.11));
+    this.setFov(66 + Math.min(24, speed * 0.11) + this.boost * 8);
   }
 
   /** Slow orbit around a point (menus, replay overviews). */
@@ -141,15 +228,15 @@ export class CameraRig {
    */
   showcase(p: V3, t: number, shift: number): void {
     const a = t * 0.3;
-    const R = 8.5;
+    const [R, h, ly] = camOffsets(this.vehicle).showcase;
     const ca = Math.cos(a), sa = Math.sin(a);
     this.cam.up.set(0, 1, 0);
-    this.cam.position.set(p.x + ca * R, p.y + 1.7, p.z + sa * R);
+    this.cam.position.set(p.x + ca * R, p.y + h, p.z + sa * R);
     this.setFov(50);
     // Camera right on the ground plane is (sa, 0, -ca); looking k metres left of the car puts
     // it at about +shift NDC.
     const k = R * Math.tan((this.cam.fov * Math.PI) / 360) * this.cam.aspect * shift;
-    this.cam.lookAt(p.x - sa * k, p.y + 0.4, p.z + ca * k);
+    this.cam.lookAt(p.x - sa * k, p.y + ly, p.z + ca * k);
     this.init = false;
   }
 
