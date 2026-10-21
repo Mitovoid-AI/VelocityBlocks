@@ -185,6 +185,34 @@ npx cap open ios            # select a team and signing, then Run or Archive
 
 Both apps lock to landscape, hide the system bars and keep the screen awake while running.
 
+**iPhone and iPad without the App Store:** Apple doesn't allow installing apps from a file, so the GitHub
+releases have no iOS build. The website sends iPhone and iPad visitors to the browser game (`/play/`), which
+Safari's **Add to Home Screen** turns into a full-screen app with its own icon (`apple-touch-icon.png` and the
+`apple-mobile-web-app-*` tags in `index.html`). An App Store release needs the Xcode project above, a Mac and
+an Apple Developer account.
+
+## Windows app (Electron)
+
+The Windows app is the same web build (`npm run build`) in an Electron window: `desktop/main.cjs` serves
+`dist/` from `app://game/` (module scripts and the models don't load from `file://`), keeps links to other
+sites in the default browser, toggles full screen with F11, and once a day checks the latest GitHub release.
+The installed app downloads the new installer (progress on the taskbar button) and runs it; the portable
+`.exe` opens the download in the browser. Records live in that origin's storage under
+`%APPDATA%\Velocity Blocks`, shared by both builds and kept by updates and uninstalls.
+
+```bash
+npm run release:windows                 # type-check, build the game, pack both (about 100 MB each: Chromium)
+npm run release:windows -- --no-build   # pack the dist/ that is already there
+npm run desktop:run                     # run the last packed app with Electron, without installing
+```
+
+It makes `builds/VelocityBlocks-Setup-X.Y.Z.exe` (NSIS installer: choose the folder, Start menu and desktop
+shortcuts, uninstaller) and `builds/VelocityBlocks-X.Y.Z-Portable.exe`, plus copies named
+`VelocityBlocks-Setup.exe` and `VelocityBlocks-Portable.exe`, the fixed names the website's buttons and the
+update check use, and prints the `gh release upload` command. The files are not code-signed, so SmartScreen
+warns on the first run (More info > Run anyway) until a signing certificate is added. In the app the game is
+the plain web build: everything unlocked, no in-game update pop-up (the window does that).
+
 ## Version
 
 The version is set in one place: `"version"` in `package.json` (`X.Y.Z`). Everything else reads it:
@@ -214,12 +242,14 @@ way. The web, portal and `npm run dev` builds and iOS never check.
   rate-limited (GitHub allows 60 unauthenticated requests an hour per IP) or any other failure: nothing is shown.
 - **What it offers:** a release whose tag (`vX.Y.Z`) is newer than the app's version and that has an `.apk`
   asset from this repo's releases. Drafts and pre-releases are ignored. On the home page a pop-up says
-  "Update X.Y.Z available" with the release notes (plain text, cut to 600 characters) and **Download**,
+  "Update X.Y.Z available" with the release notes (plain text, cut to 600 characters) and **Update now**,
   **Later** (also Android Back) and **Skip this version** (that tag is not offered again automatically).
-- **Download** opens the APK's address in the system browser. The browser downloads it; opening the file
-  installs it over the game (progress is kept). Android asks once to allow installs from that app (the
-  browser or the file manager). The game itself never downloads or installs anything, so it needs no
-  install permission.
+- **Update now** (the `github` build on Android 7+) downloads the APK inside the game with a progress bar
+  (`VbNativePlugin.downloadUpdate`, only from this repo's release downloads), checks it is this app at a higher
+  versionCode, and opens Android's installer on it. The first time, Android asks to allow installs from
+  Velocity Blocks ("Install unknown apps"); coming back with it allowed starts the install. Only the `github`
+  flavor declares `REQUEST_INSTALL_PACKAGES`. On Android 6 and in app builds before 1.2.2 the button opens the
+  APK's address in the browser instead, which downloads it for the player to open.
 - **Settings > Check for updates** (APK installs only) checks at once and says "You're up to date", shows
   the pop-up (a skipped version too), or says it couldn't check.
 - An update only installs over an APK signed with the **same key**: a debug-signed build updates debug
@@ -250,8 +280,11 @@ way. The web, portal and `npm run dev` builds and iOS never check.
    the apps only see the latest full release. The notes are what the update pop-up shows. Installed GitHub
    APKs (1.2.2 and later, Android 7+) download the update inside the game with a progress bar and open
    Android's installer; older ones open the download in the browser.
-4. For Google Play, `npm run android:release` builds the `.aab` with the same version (Play installs never
+4. For Windows, `npm run release:windows` builds the installer and the portable `.exe` with the same version;
+   run the `gh release upload` command it prints to attach them to the same release.
+5. For Google Play, `npm run android:release` builds the `.aab` with the same version (Play installs never
    see the GitHub release).
+6. Rebuild and publish the website (`npm run site:deploy`) and commit `docs/`, so the browser game matches.
 
 ## Website
 
@@ -357,7 +390,8 @@ src/
   ui/         HUD, DOM helpers, styles
 tests/        vitest suites
 scripts/      dev tools (see above), site build/serve/deploy
-site/         the GitHub Pages site (see Website)
+site/         the GitHub Pages site (see Website); docs/ is its build
+desktop/      the Windows app: Electron main process and icon (see Windows app)
 android/ ios/ Capacitor native projects
 ```
 

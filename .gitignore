@@ -36,3 +36,7 @@ dist-*/
 
 # Play Store signing (see android/keystore.properties.example)
 android/keystore.properties
+
+# Windows app build (npm run release:windows)
+desktop-dist/
+builds/

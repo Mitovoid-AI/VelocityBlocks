@@ -21,19 +21,60 @@
   });
   syncTheme();
 
-  // ------------------------------------------------------------ APK version and size
-  // The links always point at releases/latest/download/VelocityBlocks.apk; this only fills in the meta line.
-  // Offline, rate-limited (60 requests an hour per IP) or blocked: the static text stays.
-  function showApk(info) {
-    if (!info) return;
-    if (info.size) document.querySelectorAll("[data-apk-size]").forEach(function (el) { el.textContent = info.size; });
-    if (info.version) document.querySelectorAll("[data-apk-version]").forEach(function (el) { el.textContent = " · " + info.version; });
+  // ------------------------------------------------------------ the visitor's device
+  // Android keeps the page as written (the APK). Windows gets the installer, iPhone/iPad and other computers
+  // the browser game; the [data-for] lines under the hero button follow. A guess from the user agent: the
+  // "Get it on every device" section always lists everything.
+  var LATEST = "https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/";
+  var ua = navigator.userAgent || "";
+  var platform =
+    /Android/i.test(ua) ? "android" :
+    /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "ios" :
+    /Windows/i.test(ua) && !/Windows Phone/i.test(ua) ? "windows" :
+    /Linux|Macintosh|CrOS|X11/i.test(ua) ? "other" : "android";
+  var DL = {
+    android: { href: LATEST + "VelocityBlocks.apk", label: "Download for Android", short: "Download" },
+    windows: { href: LATEST + "VelocityBlocks-Setup.exe", label: "Download for Windows", short: "Download" },
+    ios: { href: "play/", label: "Play on iPhone and iPad", short: "Play" },
+    other: { href: "play/", label: "Play in your browser", short: "Play" }
+  }[platform];
+  if (platform !== "android") {
+    var heroBtn = document.getElementById("hero-dl");
+    var heroLabel = document.getElementById("hero-dl-label");
+    if (heroBtn && heroLabel) {
+      heroBtn.href = DL.href;
+      heroBtn.removeAttribute("data-apk");
+      heroLabel.textContent = DL.label;
+    }
+    document.querySelectorAll("[data-for]").forEach(function (el) { el.hidden = el.getAttribute("data-for") !== platform; });
+    document.querySelectorAll("[data-dl]").forEach(function (el) {
+      el.href = DL.href;
+      el.removeAttribute("data-apk");
+      var last = el.lastChild;
+      if (last && last.nodeType === 3) last.textContent = DL.short;
+    });
   }
-  (function apkInfo() {
-    var KEY = "vb-site-apk-info";
+  var mine = document.querySelector('.plat[data-plat="' + platform + '"]');
+  if (mine) mine.classList.add("mine");
+
+  // ------------------------------------------------------------ release version and file sizes
+  // The links always point at releases/latest/download/<fixed name>; this only fills in the version and the
+  // [data-asset-size="<file name>"] sizes. Offline, rate-limited (60 requests an hour per IP) or blocked:
+  // the static text stays.
+  function showRelease(info) {
+    if (!info) return;
+    var sizes = info.sizes || {};
+    document.querySelectorAll("[data-asset-size]").forEach(function (el) {
+      var s = sizes[el.getAttribute("data-asset-size")];
+      if (s) el.textContent = s;
+    });
+    if (info.version) document.querySelectorAll("[data-release-version]").forEach(function (el) { el.textContent = " · " + info.version; });
+  }
+  (function releaseInfo() {
+    var KEY = "vb-site-release-info";
     try {
       var cached = JSON.parse(sessionStorage.getItem(KEY) || "null");
-      if (cached && Date.now() - cached.at < 3600000) return showApk(cached);
+      if (cached && Date.now() - cached.at < 3600000) return showRelease(cached);
     } catch (e) {}
     if (!window.fetch) return;
     var ctl = window.AbortController ? new AbortController() : null;
@@ -45,13 +86,12 @@
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     }).then(function (rel) {
-      var assets = (rel && rel.assets) || [];
-      var apk = assets.filter(function (a) { return a.name === "VelocityBlocks.apk"; })[0] ||
-        assets.filter(function (a) { return /\.apk$/i.test(a.name); })[0];
-      var info = { at: Date.now() };
-      if (apk && apk.size) info.size = (apk.size / 1e6).toFixed(1) + " MB";
+      var info = { at: Date.now(), sizes: {} };
+      ((rel && rel.assets) || []).forEach(function (a) {
+        if (a && a.name && a.size) info.sizes[a.name] = (a.size / 1e6 >= 20 ? Math.round(a.size / 1e6) : (a.size / 1e6).toFixed(1)) + " MB";
+      });
       if (rel && /^v?\d+\.\d+\.\d+$/.test(rel.tag_name || "")) info.version = "v" + rel.tag_name.replace(/^v/, "");
-      showApk(info);
+      showRelease(info);
       try { sessionStorage.setItem(KEY, JSON.stringify(info)); } catch (e) {}
     }).catch(function () {}).then(function () { clearTimeout(timer); });
   })();

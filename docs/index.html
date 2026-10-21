@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Velocity Blocks: block-track time-attack racer for Android</title>
-<meta name="description" content="A free block-track time-attack racer for Android and the browser. 24 tracks in Stadium, Desert and Water, a car, a bike and a truck, nitro, ghosts, a racing line and a track editor. No ads, no account.">
+<title>Velocity Blocks: block-track time-attack racer</title>
+<meta name="description" content="A free block-track time-attack racer for Android, Windows, iPhone, iPad and the browser. 24 tracks in Stadium, Desert and Water, a car, a bike and a truck, nitro, ghosts, a racing line and a track editor. No ads, no account.">
 <link rel="canonical" href="https://mitovoid-ai.github.io/VelocityBlocks/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Velocity Blocks">
 <meta property="og:title" content="Velocity Blocks: build it, drive it, beat the author">
-<meta property="og:description" content="Free block-track racer for Android. 24 tracks, cars, bikes and trucks, nitro, ghosts and a track editor. No ads, no account.">
+<meta property="og:description" content="Free block-track racer for Android, Windows and the browser. 24 tracks, cars, bikes and trucks, nitro, ghosts and a track editor. No ads, no account.">
 <meta property="og:url" content="https://mitovoid-ai.github.io/VelocityBlocks/">
 <meta property="og:image" content="https://mitovoid-ai.github.io/VelocityBlocks/img/og.jpg">
 <meta property="og:image:width" content="1200">
@@ -57,12 +57,19 @@
         <span class="line grad" aria-hidden="true"><span class="w" style="--i:4">Beat</span> <span class="w" style="--i:5">the</span> <span class="w" style="--i:6">author.</span></span>
       </h1>
       <p class="lede">Velocity Blocks is a time-attack racer made of road blocks. Take every checkpoint, shave off tenths, and chase the hidden Author medal across 24 tracks. Then build your own.</p>
+      <!-- Android by default; script.js swaps the button, its line and the hint for Windows, iPhone/iPad
+           and other computers (the [data-for] blocks). -->
       <div class="cta">
-        <a class="pill light big" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download for Android</a>
-        <p class="cta-meta">Free · Android 6.0+ · <span data-apk-size>8.3 MB</span><span data-apk-version></span></p>
+        <a class="pill light big" id="hero-dl" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg><span id="hero-dl-label">Download for Android</span></a>
+        <p class="cta-meta" data-for="android">Free · Android 6.0+ · <span data-asset-size="VelocityBlocks.apk">8.3 MB</span><span data-release-version></span></p>
+        <p class="cta-meta" data-for="windows" hidden>Free · Windows 10 and 11, 64-bit · <span data-asset-size="VelocityBlocks-Setup.exe">101 MB</span><span data-release-version></span></p>
+        <p class="cta-meta" data-for="ios" hidden>Free · iPhone and iPad, in Safari · nothing to install</p>
+        <p class="cta-meta" data-for="other" hidden>Free · any modern browser · nothing to install</p>
       </div>
-      <p class="fine">Android may block installs from unknown sources. If it does, tap <strong>Settings</strong>, allow your browser (or file manager) to install apps, go back and tap <strong>Install</strong>.</p>
-      <p class="fine alt">No Android phone? <a href="play/">Play it in your browser</a>.</p>
+      <p class="fine" data-for="android">Android may block installs from unknown sources. If it does, tap <strong>Settings</strong>, allow your browser (or file manager) to install apps, go back and tap <strong>Install</strong>.</p>
+      <p class="fine" data-for="windows" hidden>Windows may say <strong>Windows protected your PC</strong> because the app isn't signed yet. Click <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
+      <p class="fine" data-for="ios" hidden>Open it in Safari, tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>: it opens full-screen like an app. Hold the phone sideways.</p>
+      <p class="fine alt">Also for <a href="#download">Android, Windows, iPhone and iPad</a>, or <a href="play/">play it in your browser</a>.</p>
     </div>
 
     <div class="deck-wrap">
@@ -115,15 +122,15 @@
     <h2>Why Velocity Blocks</h2>
     <div class="why">
       <div class="why-row"><div class="ic" style="--t:#b6f36b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12V8H6a2 2 0 0 1 0-4h12v4M4 6v12a2 2 0 0 0 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg></div>
-        <div><h3>Free, and nothing to sign up for</h3><p>The APK has the whole game unlocked. No ads, no account, no tracking.</p></div></div>
+        <div><h3>Free, and nothing to sign up for</h3><p>The APK, the Windows app and the browser version have the whole game unlocked. No ads, no account, no tracking.</p></div></div>
       <div class="why-row"><div class="ic" style="--t:#6ee7ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 2l20 20M8.5 16.5a5 5 0 0 1 7 0M2 8.8a15 15 0 0 1 4.2-2.7M10.7 5.1A15 15 0 0 1 22 8.8M5 12.9a10 10 0 0 1 5.2-2.7M17.4 12.5c.6.3 1.1.7 1.6 1.2M12 20h.01"/></svg></div>
-        <div><h3>Plays offline</h3><p>Every track, the editor, your times, medals and ghosts live on your phone.</p></div></div>
+        <div><h3>Plays offline</h3><p>Every track, the editor, your times, medals and ghosts live on your device.</p></div></div>
       <div class="why-row"><div class="ic" style="--t:#ffd75e"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a8 8 0 1 1 16 0M12 14l4-5"/></svg></div>
         <div><h3>Smooth on modest phones</h3><p>Graphics pick Low, Medium or High by themselves to keep the frame rate up. The physics run at a fixed 100 Hz either way.</p></div></div>
       <div class="why-row"><div class="ic" style="--t:#ff9a6b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg></div>
         <div><h3>Open source</h3><p>The code is MIT-licensed on GitHub. Read it, build it, send a pull request.</p></div></div>
     </div>
-    <div class="note" id="updates"><strong>Already have it?</strong><p>The app finds new versions by itself, at most once a day, and asks before updating. Tap Download, install over the top, and your times, medals, ghosts and tracks stay as they are. (APKs older than 1.2.0 can't check yet: install the new one by hand once.)</p></div>
+    <div class="note" id="updates"><strong>Already have it?</strong><p>The Android and Windows apps look for new versions by themselves, at most once a day, and ask before updating. Tap <strong>Update now</strong>: the update downloads in the app and installs over the top, and your times, medals, ghosts and tracks stay as they are. (APKs older than 1.2.2 download it in the browser once; older than 1.2.0, install the new one by hand.)</p></div>
   </div>
 </section>
 
@@ -215,6 +222,52 @@
   </div>
 </section>
 
+<section id="download">
+  <div class="wrap" data-reveal>
+    <h2>Get it on every device</h2>
+    <p class="intro">The same game everywhere, free with everything unlocked. Each device keeps its own records.</p>
+    <div class="platforms">
+      <article class="plat" data-plat="android">
+        <div class="ic" style="--t:#b6f36b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg></div>
+        <h3>Android</h3>
+        <p>Android 6.0 and up. Updates itself from 1.2.2 on: it downloads the new version in the game and asks Android to install it.</p>
+        <div class="plat-dl">
+          <a class="pill light" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk>Download APK</a>
+          <span class="size" data-asset-size="VelocityBlocks.apk">8.3 MB</span>
+        </div>
+      </article>
+      <article class="plat" data-plat="windows">
+        <div class="ic" style="--t:#6ee7ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>Windows</h3>
+        <p>Windows 10 and 11, 64-bit. Keyboard or gamepad, F11 for full screen. The installer adds Start menu and desktop shortcuts and updates itself; the portable .exe runs without installing.</p>
+        <div class="plat-dl">
+          <a class="pill light" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks-Setup.exe">Installer</a>
+          <a class="pill dark" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks-Portable.exe">Portable .exe</a>
+          <span class="size" data-asset-size="VelocityBlocks-Setup.exe">101 MB</span>
+        </div>
+        <p class="fine">Not signed yet: if Windows says <strong>Windows protected your PC</strong>, click <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
+      </article>
+      <article class="plat" data-plat="ios">
+        <div class="ic" style="--t:#ffd75e"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M12 18h.01"/></svg></div>
+        <h3>iPhone and iPad</h3>
+        <p>Apple only lets App Store apps be installed, and Velocity Blocks isn't there yet. Play it in Safari instead: tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>, and it opens full-screen with its own icon.</p>
+        <div class="plat-dl">
+          <a class="pill light" href="play/">Play in Safari</a>
+        </div>
+      </article>
+      <article class="plat" data-plat="other">
+        <div class="ic" style="--t:#ff9a6b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg></div>
+        <h3>Mac, Linux, Chromebook</h3>
+        <p>Any up-to-date Chrome, Edge, Firefox or Safari. Nothing to install; records stay in that browser.</p>
+        <div class="plat-dl">
+          <a class="pill light" href="play/">Play in your browser</a>
+        </div>
+      </article>
+    </div>
+    <p class="fine">Every file comes from the <a href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest">latest GitHub release</a><span data-release-version></span>, built from the open-source code.</p>
+  </div>
+</section>
+
 <section id="play" class="play">
   <div class="wrap" data-reveal>
     <div class="play-box">
@@ -230,11 +283,11 @@
 <section id="free">
   <div class="wrap" data-reveal>
     <h2>Free, and the Full Game</h2>
-    <p class="intro">This APK and the browser version have everything unlocked. The Google Play version will be free too, with one optional one-time purchase, the Full Game, that opens the rest. No subscription and no ads in any of them.</p>
+    <p class="intro">The APK, the Windows app and the browser version have everything unlocked. The Google Play version will be free too, with one optional one-time purchase, the Full Game, that opens the rest. No subscription and no ads in any of them.</p>
     <div class="table-scroll" tabindex="0" role="region" aria-label="What each version includes">
       <table class="plans">
         <thead>
-          <tr><th scope="col">What you get</th><th scope="col" class="c">APK and browser</th><th scope="col" class="c">Google Play</th><th scope="col" class="c">Play + Full Game</th></tr>
+          <tr><th scope="col">What you get</th><th scope="col" class="c">APK, Windows, browser</th><th scope="col" class="c">Google Play</th><th scope="col" class="c">Play + Full Game</th></tr>
         </thead>
         <tbody>
           <tr><th scope="row">Stadium campaign, A01 to A12</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
@@ -299,7 +352,7 @@
 
 <div class="dock">
   <button class="pill dark" type="button" id="menu-open" aria-haspopup="dialog" aria-controls="menu"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>Menu</button>
-  <a class="pill light" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download</a>
+  <a class="pill light" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk data-dl><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download</a>
 </div>
 
 <dialog class="menu" id="menu" aria-label="Menu">
@@ -311,7 +364,7 @@
     <a href="#play">Play in your browser</a>
     <a href="#free">Free and Full Game</a>
     <a href="#privacy">Privacy</a>
-    <a href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk>Download <span data-apk-size>8.3 MB</span></a>
+    <a href="#download">Download</a>
   </nav>
 </dialog>
 

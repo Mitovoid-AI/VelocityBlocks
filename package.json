@@ -27,6 +27,8 @@
     "ios:open": "cap open ios",
     "android:release": "npm run cap:sync && cd android && .\\gradlew.bat bundlePlayRelease",
     "release:apk": "node scripts/release-apk.mjs",
+    "release:windows": "node scripts/build-desktop.mjs",
+    "desktop:run": "electron desktop-dist/app",
     "site:build": "tsc --noEmit && node scripts/build-site.mjs",
     "site:serve": "node scripts/serve-site.mjs",
     "site:deploy": "node scripts/deploy-site.mjs"
@@ -41,6 +43,8 @@
   "devDependencies": {
     "@capacitor/cli": "^6.2.1",
     "@types/three": "^0.186.0",
+    "electron": "44.9.3",
+    "electron-builder": "26.15.3",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"

@@ -192,6 +192,13 @@ for (const dir of splashes) {
   write(rel, w, h, { ss: 2, solidBg: BG_B, scale: s, ox: (w - 512 * s) / 2, oy: (h - 512 * s) / 2 }, false);
 }
 
+// ---------- Web and desktop ----------
+// Safari's Add to Home Screen ignores SVG icons and rounds the square itself; the manifest gets a PNG for
+// installs that want one; the Windows app (electron-builder) makes its .ico from the 512 px PNG.
+write('public/apple-touch-icon.png', 180, 180, { bgShape: 'square', scale: 180 / 512, ox: 0, oy: 0 }, false);
+write('public/icon-512.png', 512, 512, { bgShape: 'rounded', scale: 1, ox: 0, oy: 0 });
+write('desktop/icon.png', 512, 512, { bgShape: 'rounded', scale: 1, ox: 0, oy: 0 });
+
 // ---------- iOS ----------
 const ios = 'ios/App/App/Assets.xcassets';
 if (existsSync(join(root, ios))) {

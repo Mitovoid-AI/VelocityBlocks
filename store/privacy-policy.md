@@ -1,17 +1,17 @@
 # Velocity Blocks: Privacy Policy
 
-Last updated: 21 October 2026
+Last updated: 22 October 2026
 
 Velocity Blocks is a single-player racing game made by Mitovoid-AI. This policy covers the Android
 app (package `com.velocityblocks.game`), both the version from Google Play and the APK published on
-GitHub.
+GitHub, and the Windows app published on GitHub.
 
 ## What the app collects
 
 Nothing. The app has no account system, no analytics, no advertising SDK and no crash reporting
 service, and it does not send any data to us or to anyone else.
 
-## Update check (APK from GitHub only)
+## Update check (APK and Windows app from GitHub only)
 
 If you installed the app from an APK file (for example one downloaded from the project's GitHub
 releases) rather than from Google Play, the app checks for a newer version at most once a day: it makes
@@ -19,7 +19,11 @@ one request to `api.github.com` (GitHub's public API) for the latest release of 
 data, identifiers or game data are sent with it. As with any web request, GitHub sees your IP address
 and the request itself, under the [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
 The app keeps the time of the last check, and a version you chose to skip, on your device. If you tap
-Download, the APK opens in your browser, which downloads it from GitHub.
+Update now, the app downloads the new APK from GitHub and opens Android's installer, which asks you to
+confirm (versions before 1.2.2, and Android 6, open the download in your browser instead).
+
+The Windows app makes the same once-a-day request. If you choose Update now, it downloads the new
+installer from GitHub and runs it; the portable version opens the download in your browser.
 
 The version installed from Google Play never makes this request: Google Play handles its updates.
 
@@ -54,6 +58,9 @@ in the game's Settings deletes your times, medals and ghosts.
 - **Billing** (`com.android.vending.BILLING`): lets the app open Google Play's purchase screen for the
   Full Game.
 - **Vibrate**: short vibrations on checkpoints.
+- **Install apps** (`REQUEST_INSTALL_PACKAGES`, the APK from GitHub only): lets the app open Android's
+  installer for an update it downloaded. Android asks you to allow it the first time, and every install
+  still needs your confirmation. The Google Play version does not have this permission.
 - The photo picker and camera are opened only when you tap Gallery or Camera in your driver profile;
   the app does not request camera or storage permissions for this.
 
