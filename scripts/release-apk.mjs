@@ -67,7 +67,8 @@ if (!existsSync(built)) {
 
 const outDir = join(root, 'builds');
 mkdirSync(outDir, { recursive: true });
-const apkName = `VelocityBlocks-${tag}${debug ? '-debug' : ''}.apk`;
+// The file players see on the release page: a clean name, whatever key signed it.
+const apkName = `VelocityBlocks-${version}.apk`;
 const apk = join(outDir, apkName);
 copyFileSync(built, apk);
 const apkRel = relative(root, apk).split('\\').join('/');
