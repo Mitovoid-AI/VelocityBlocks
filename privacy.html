@@ -20,12 +20,13 @@
 <main class="doc">
 <div class="wrap">
 <h1>Privacy policy</h1>
-<p>Last updated: 21 October 2026</p>
-<p>Velocity Blocks is a single-player racing game made by Mitovoid-AI. This policy covers the Android app (package <code>com.velocityblocks.game</code>), both the version from Google Play and the APK published on GitHub.</p>
+<p>Last updated: 22 October 2026</p>
+<p>Velocity Blocks is a single-player racing game made by Mitovoid-AI. This policy covers the Android app (package <code>com.velocityblocks.game</code>), both the version from Google Play and the APK published on GitHub, and the Windows app published on GitHub.</p>
 <h2>What the app collects</h2>
 <p>Nothing. The app has no account system, no analytics, no advertising SDK and no crash reporting service, and it does not send any data to us or to anyone else.</p>
-<h2>Update check (APK from GitHub only)</h2>
-<p>If you installed the app from an APK file (for example one downloaded from the project's GitHub releases) rather than from Google Play, the app checks for a newer version at most once a day: it makes one request to <code>api.github.com</code> (GitHub's public API) for the latest release of the project. No personal data, identifiers or game data are sent with it. As with any web request, GitHub sees your IP address and the request itself, under the <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub Privacy Statement</a>. The app keeps the time of the last check, and a version you chose to skip, on your device. If you tap Download, the APK opens in your browser, which downloads it from GitHub.</p>
+<h2>Update check (APK and Windows app from GitHub only)</h2>
+<p>If you installed the app from an APK file (for example one downloaded from the project's GitHub releases) rather than from Google Play, the app checks for a newer version at most once a day: it makes one request to <code>api.github.com</code> (GitHub's public API) for the latest release of the project. No personal data, identifiers or game data are sent with it. As with any web request, GitHub sees your IP address and the request itself, under the <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub Privacy Statement</a>. The app keeps the time of the last check, and a version you chose to skip, on your device. If you tap Update now, the app downloads the new APK from GitHub and opens Android's installer, which asks you to confirm (versions before 1.2.2, and Android 6, open the download in your browser instead).</p>
+<p>The Windows app makes the same once-a-day request. If you choose Update now, it downloads the new installer from GitHub and runs it; the portable version opens the download in your browser.</p>
 <p>The version installed from Google Play never makes this request: Google Play handles its updates.</p>
 <h2>Purchases</h2>
 <p>The app offers one optional in-app purchase, the <strong>Full Game</strong>. The purchase is made and processed entirely by <strong>Google Play</strong>: your payment details, Google account and order history are handled by Google under the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>, and we do not receive them. The app only asks Google Play on your phone whether the Full Game is owned, and keeps a yes/no note of the answer on your device so the purchase works offline. We collect no personal data in connection with purchases.</p>
@@ -43,6 +44,7 @@
   <li><strong>Internet</strong>: required by the app framework (Capacitor). The game itself sends nothing over the network, except the once-a-day update check of the APK version described above; Google Play's billing service uses it for purchases.</li>
   <li><strong>Billing</strong> (<code>com.android.vending.BILLING</code>): lets the app open Google Play's purchase screen for the Full Game.</li>
   <li><strong>Vibrate</strong>: short vibrations on checkpoints.</li>
+  <li><strong>Install apps</strong> (<code>REQUEST_INSTALL_PACKAGES</code>, the APK from GitHub only): lets the app open Android's installer for an update it downloaded. Android asks you to allow it the first time, and every install still needs your confirmation. The Google Play version does not have this permission.</li>
   <li>The photo picker and camera are opened only when you tap Gallery or Camera in your driver profile; the app does not request camera or storage permissions for this.</li>
 </ul>
 <h2>Children</h2>
