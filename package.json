@@ -1,7 +1,7 @@
 {
   "name": "velocity-blocks",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Velocity Blocks: a single-player block-track time-attack racer for Web, Android and iOS.",
   "license": "MIT",
   "repository": {
@@ -22,10 +22,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "cap:sync": "npm run build && cap sync",
-    "android:build": "npm run cap:sync && cd android && gradlew.bat assembleDebug",
+    "android:build": "npm run cap:sync && cd android && gradlew.bat assembleGithubDebug",
     "android:open": "cap open android",
     "ios:open": "cap open ios",
-    "android:release": "npm run cap:sync && cd android && .\\gradlew.bat bundleRelease",
+    "android:release": "npm run cap:sync && cd android && .\\gradlew.bat bundlePlayRelease",
     "release:apk": "node scripts/release-apk.mjs",
     "site:build": "tsc --noEmit && node scripts/build-site.mjs",
     "site:serve": "node scripts/serve-site.mjs",

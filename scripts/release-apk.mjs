@@ -56,12 +56,13 @@ const run = (cmd, cmdArgs, cwd) => {
 if (!flag('--no-build')) {
   run('npm', ['run', 'build'], root);
   run('npx', ['cap', 'sync', 'android'], root);
-  run(win ? '.\\gradlew.bat' : './gradlew', [debug ? 'assembleDebug' : 'assembleRelease'], android);
+  run(win ? '.\\gradlew.bat' : './gradlew', [debug ? 'assembleGithubDebug' : 'assembleGithubRelease'], android);
 }
 
-const built = join(android, 'app', 'build', 'outputs', 'apk', variant, `app-${variant}.apk`);
+// The github flavor: the build that updates itself in the app (the play flavor is for Google Play).
+const built = join(android, 'app', 'build', 'outputs', 'apk', 'github', variant, `app-github-${variant}.apk`);
 if (!existsSync(built)) {
-  const unsigned = join(android, 'app', 'build', 'outputs', 'apk', variant, `app-${variant}-unsigned.apk`);
+  const unsigned = join(android, 'app', 'build', 'outputs', 'apk', 'github', variant, `app-github-${variant}-unsigned.apk`);
   fail(existsSync(unsigned) ? `only an unsigned APK was built (${relative(root, unsigned)}): check android/keystore.properties.` : `no APK at ${relative(root, built)}.`);
 }
 

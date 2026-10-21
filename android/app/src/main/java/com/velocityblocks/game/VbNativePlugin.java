@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.InstallSourceInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.graphics.Rect;
@@ -15,6 +16,8 @@ import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebView;
 import androidx.activity.result.ActivityResult;
+import androidx.core.content.FileProvider;
+import androidx.core.content.pm.PackageInfoCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -31,10 +34,15 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.json.JSONObject;
 
 /** Native helpers the web game needs on Android (see src/platform/native.ts). */
@@ -59,11 +67,13 @@ public class VbNativePlugin extends Plugin {
             });
         }
         getActivity().getWindow().getDecorView().addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> reportGestureInsets());
+        updateExec.execute(this::clearOldUpdate);
     }
 
     @Override
     protected void handleOnResume() {
         reportGestureInsets();
+        resumeInstall();
     }
 
     /**
@@ -308,6 +318,225 @@ public class VbNativePlugin extends Plugin {
             return;
         }
         call.resolve(ret);
+    }
+
+    // ------------------------------------------------------------------ In-app updates (GitHub build)
+    //
+    // The GitHub build downloads a release's APK itself, with progress for the game's pop-up, then opens
+    // Android's installer on it. The Play build (BuildConfig.SELF_UPDATE false) refuses: Google Play
+    // updates it. Android 6 (API 23) cannot install from a content:// address, so it keeps the browser
+    // download (openUrl).
+
+    /** Only APKs attached to this repo's releases are downloaded (src/platform/updates.ts DOWNLOAD_PREFIX). */
+    private static final String UPDATE_PREFIX = "https://github.com/Mitovoid-AI/VelocityBlocks/releases/download/";
+    private static final String APK_MIME = "application/vnd.android.package-archive";
+    private final ExecutorService updateExec = Executors.newSingleThreadExecutor();
+    private volatile boolean updateBusy = false;
+    private volatile boolean updateCancel = false;
+    /** The player was sent to "Install unknown apps": open the installer when they come back with it allowed. */
+    private boolean installOnResume = false;
+
+    private File updateDir() {
+        return new File(getContext().getCacheDir(), "updates");
+    }
+
+    private File updateFile() {
+        return new File(updateDir(), "update.apk");
+    }
+
+    private static boolean inAppUpdates() {
+        return BuildConfig.SELF_UPDATE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
+    }
+
+    /** {inApp}: whether this build downloads and installs updates itself (else: the browser download). */
+    @PluginMethod
+    public void updateSupport(PluginCall call) {
+        JSObject o = new JSObject();
+        o.put("inApp", inAppUpdates());
+        call.resolve(o);
+    }
+
+    /**
+     * Download {url} (a release APK of this repo; {size} bytes if known) to the app's cache, sending
+     * "updateProgress" {received, total} events. Resolves {version} once the file is a complete APK of this
+     * app with a higher versionCode; rejects otherwise ("cancelled" after cancelUpdate).
+     */
+    @PluginMethod
+    public void downloadUpdate(PluginCall call) {
+        if (!inAppUpdates()) {
+            call.reject("In-app updates are off in this build");
+            return;
+        }
+        String url = call.getString("url");
+        if (url == null || !url.startsWith(UPDATE_PREFIX) || !url.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) {
+            call.reject("Not a release APK of this app");
+            return;
+        }
+        if (updateBusy) {
+            call.reject("A download is already running");
+            return;
+        }
+        long expected = call.getData().optLong("size", 0);
+        updateBusy = true;
+        updateCancel = false;
+        updateExec.execute(() -> {
+            File dir = updateDir();
+            File part = new File(dir, "update.apk.part");
+            File out = updateFile();
+            HttpURLConnection conn = null;
+            try {
+                if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("no space for the download");
+                out.delete();
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                // GitHub answers with a redirect to its download host (https to https: followed).
+                conn.setInstanceFollowRedirects(true);
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(30000);
+                conn.setRequestProperty("Accept", "application/octet-stream");
+                int code = conn.getResponseCode();
+                if (code != HttpURLConnection.HTTP_OK) throw new IOException("the server answered " + code);
+                long total = parseLength(conn.getHeaderField("Content-Length"));
+                if (total <= 0) total = expected;
+                long received = 0;
+                long lastSent = 0;
+                try (InputStream in = conn.getInputStream(); OutputStream os = new FileOutputStream(part)) {
+                    byte[] buf = new byte[65536];
+                    for (int n; (n = in.read(buf)) > 0; ) {
+                        if (updateCancel) throw new InterruptedIOException("cancelled");
+                        os.write(buf, 0, n);
+                        received += n;
+                        long now = System.currentTimeMillis();
+                        if (now - lastSent >= 120) {
+                            lastSent = now;
+                            sendProgress(received, total);
+                        }
+                    }
+                }
+                if (updateCancel) throw new InterruptedIOException("cancelled");
+                if (total > 0 && received != total) throw new IOException("the download was cut short");
+                sendProgress(received, total);
+                if (!part.renameTo(out)) throw new IOException("could not keep the download");
+                String version = checkApk(out);
+                Log.i(MainActivity.TAG, "update downloaded: " + version + " (" + received + " bytes)");
+                JSObject ret = new JSObject();
+                ret.put("version", version);
+                ret.put("size", received);
+                call.resolve(ret);
+            } catch (InterruptedIOException e) {
+                out.delete();
+                call.reject("cancelled", "CANCELLED");
+            } catch (Exception e) {
+                Log.w(MainActivity.TAG, "update download failed", e);
+                out.delete();
+                call.reject(e.getMessage() != null ? e.getMessage() : e.toString(), e);
+            } finally {
+                part.delete();
+                if (conn != null) conn.disconnect();
+                updateBusy = false;
+            }
+        });
+    }
+
+    /** Stop a running download (its call rejects with "cancelled"). */
+    @PluginMethod
+    public void cancelUpdate(PluginCall call) {
+        updateCancel = true;
+        call.resolve(new JSObject()); // not resolve(): see RESOLVED
+    }
+
+    /**
+     * Open Android's installer on the downloaded update. {state: "installing"} when it opened; {state:
+     * "permission"} when Android first needs "Install unknown apps" allowed for this app: its settings page
+     * opens, and coming back with it allowed opens the installer (the "updateInstall" event says which).
+     */
+    @PluginMethod
+    public void installUpdate(PluginCall call) {
+        if (!inAppUpdates() || !updateFile().isFile()) {
+            call.reject("No downloaded update");
+            return;
+        }
+        JSObject ret = new JSObject();
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getContext().getPackageManager().canRequestPackageInstalls()) {
+                installOnResume = true;
+                Intent s = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getContext().getPackageName()));
+                s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(s);
+                ret.put("state", "permission");
+            } else {
+                launchInstaller();
+                ret.put("state", "installing");
+            }
+            call.resolve(ret);
+        } catch (Exception e) {
+            installOnResume = false;
+            call.reject("Could not open the installer: " + e.getMessage(), e);
+        }
+    }
+
+    /** Back from "Install unknown apps": install if it was allowed. */
+    private void resumeInstall() {
+        if (!installOnResume) return;
+        installOnResume = false;
+        JSObject o = new JSObject();
+        boolean allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getContext().getPackageManager().canRequestPackageInstalls();
+        if (!allowed) o.put("state", "denied");
+        else {
+            try {
+                launchInstaller();
+                o.put("state", "installing");
+            } catch (Exception e) {
+                Log.w(MainActivity.TAG, "installer did not open", e);
+                o.put("state", "failed");
+            }
+        }
+        notifyListeners("updateInstall", o);
+    }
+
+    private void launchInstaller() {
+        Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", updateFile());
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setDataAndType(uri, APK_MIME);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(i);
+    }
+
+    /** The APK's versionName, if it is this app at a higher versionCode; throws otherwise. */
+    private String checkApk(File apk) throws IOException {
+        PackageManager pm = getContext().getPackageManager();
+        PackageInfo got = pm.getPackageArchiveInfo(apk.getPath(), 0);
+        if (got == null) throw new IOException("the download is not a valid APK");
+        if (!getContext().getPackageName().equals(got.packageName)) throw new IOException("the APK is for another app");
+        try {
+            PackageInfo mine = pm.getPackageInfo(getContext().getPackageName(), 0);
+            if (PackageInfoCompat.getLongVersionCode(got) <= PackageInfoCompat.getLongVersionCode(mine)) {
+                throw new IOException("the APK is not newer than this version");
+            }
+        } catch (PackageManager.NameNotFoundException e) {
+            throw new IOException("this app's version is unknown");
+        }
+        return got.versionName != null ? got.versionName : "";
+    }
+
+    private void sendProgress(long received, long total) {
+        JSObject p = new JSObject();
+        p.put("received", received);
+        p.put("total", total);
+        notifyListeners("updateProgress", p);
+    }
+
+    private static long parseLength(String s) {
+        try {
+            return s != null ? Long.parseLong(s.trim()) : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** A finished update restarts the app: drop what an earlier download left (never during one). */
+    private void clearOldUpdate() {
+        File[] old = updateDir().listFiles();
+        if (old != null) for (File f : old) f.delete();
     }
 
     /** 'gesture', '3-button', '2-button' or 'unknown'. Diagnostics only: OEM skins may misreport. */

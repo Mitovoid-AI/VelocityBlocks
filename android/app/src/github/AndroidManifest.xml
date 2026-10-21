@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only in the GitHub build (see productFlavors in app/build.gradle): lets the app open Android's
+     installer for an update it downloaded itself (VbNativePlugin.installUpdate). The Play build never
+     has it: Google Play updates that one. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>

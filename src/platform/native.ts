@@ -33,8 +33,17 @@ interface VbNativePlugin {
   deviceInfo(): Promise<DeviceInfo>;
   installSource(): Promise<{ known: boolean; installer?: string }>;
   openUrl(options: { url: string }): Promise<{ opened: boolean }>;
+  updateSupport(): Promise<{ inApp: boolean }>;
+  downloadUpdate(options: { url: string; size: number }): Promise<{ version: string; size: number }>;
+  cancelUpdate(): Promise<void>;
+  installUpdate(): Promise<{ state: 'installing' | 'permission' }>;
   addListener(event: 'gestureInsets', fn: (g: GestureInsets) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'updateProgress', fn: (p: { received: number; total: number }) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'updateInstall', fn: (p: { state: InstallState }) => void): Promise<PluginListenerHandle>;
 }
+
+/** Where opening the installer got to: back from "Install unknown apps" it is installing, denied or failed. */
+export type InstallState = 'installing' | 'permission' | 'denied' | 'failed';
 
 const VbNative = registerPlugin<VbNativePlugin>('VbNative');
 const available = (): boolean => Capacitor.isPluginAvailable('VbNative');
@@ -117,3 +126,71 @@ export async function openExternalUrl(url: string): Promise<boolean> {
     return false;
   }
 }
+
+// ------------------------------------------------------------------ In-app updates (GitHub APK build)
+
+/**
+ * Whether this app downloads and installs updates itself (the GitHub build on Android 7+). False in the Play
+ * build, outside Android, and in app builds from before in-app updates (they use the browser download).
+ */
+export async function inAppUpdates(): Promise<boolean> {
+  if (!available()) return false;
+  try {
+    return (await VbNative.updateSupport()).inApp === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The download was stopped with cancelApkDownload(). */
+export class DownloadCancelled extends Error {
+  constructor() {
+    super('cancelled');
+  }
+}
+
+/**
+ * Download a release APK inside the app, calling `progress(received, total)` along the way (total 0 when
+ * unknown). Resolves with the APK's version once it is a complete, newer APK of this app; rejects with
+ * DownloadCancelled or an Error saying what went wrong.
+ */
+export async function downloadApk(url: string, size: number, progress: (received: number, total: number) => void): Promise<string> {
+  const sub = await VbNative.addListener('updateProgress', (p) => progress(Number(p.received) || 0, Number(p.total) || 0));
+  try {
+    return (await VbNative.downloadUpdate({ url, size })).version;
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === 'CANCELLED') throw new DownloadCancelled();
+    throw e instanceof Error ? e : new Error(String(e));
+  } finally {
+    void sub.remove();
+  }
+}
+
+export function cancelApkDownload(): void {
+  VbNative.cancelUpdate().catch(() => {});
+}
+
+/**
+ * Open Android's installer on the downloaded APK. 'permission' means Android's "Install unknown apps" page
+ * opened first; `later` then gets what happened when the player came back ('installing', 'denied', 'failed').
+ */
+export async function installApk(later: (s: InstallState) => void): Promise<InstallState> {
+  // One waiting listener at most: a second Install tap replaces the first one's.
+  void installSub?.remove();
+  const sub = await VbNative.addListener('updateInstall', (p) => {
+    void sub.remove();
+    later(p.state);
+  });
+  installSub = sub;
+  try {
+    const { state } = await VbNative.installUpdate();
+    if (state !== 'permission') void sub.remove();
+    return state;
+  } catch {
+    void sub.remove();
+    return 'failed';
+  }
+}
+
+let installSub: PluginListenerHandle | null = null;

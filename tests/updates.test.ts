@@ -3,7 +3,7 @@
 // at all (APK install vs Google Play vs web/portal/dev), escaping of the release notes, and every failure.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { INSTALL_HINT, updatePopupHtml } from '../src/app/updateUi';
+import { IN_APP_HINT, INSTALL_HINT, progressText, stepHtml, updatePopupHtml } from '../src/app/updateUi';
 import { installSource, openExternalUrl } from '../src/platform/native';
 import {
   autoCheckDue,
@@ -225,6 +225,29 @@ describe('release notes', () => {
     expect(sizeText(2048)).toBe('2 KB');
     expect(sizeText(0)).toBe('');
     expect(sizeText(NaN)).toBe('');
+  });
+
+  it('updates inside the app: Update now, then a progress bar, then Install', () => {
+    const info = releaseUpdate(release('v1.3.0'), '1.2.0')!;
+    const html = updatePopupHtml(info, '1.2.0', true);
+    expect(html).toMatch(/data-act="download"[^>]*>Update now</);
+    expect(html).toContain(IN_APP_HINT.slice(0, 30));
+    expect(html).not.toContain('opens your browser');
+    const dl = stepHtml(info, { kind: 'downloading', received: 3 * 1024 * 1024, total: 8 * 1024 * 1024 });
+    expect(dl).toContain('aria-valuenow="38"');
+    expect(dl).toContain('width:37.5%');
+    expect(dl).toContain('3.0 / 8.0 MB · 37%');
+    // Cancel is the pop-up's Back while downloading.
+    expect(dl).toMatch(/data-act="back"[^>]*>Cancel</);
+    expect(stepHtml(info, { kind: 'downloading', received: 0, total: 0 })).toContain('upd-bar busy');
+    const ready = stepHtml(info, { kind: 'install', state: 'permission' });
+    expect(ready).toMatch(/data-act="install"[^>]*>Install</);
+    expect(ready).toContain('Install unknown apps');
+    const failed = stepHtml(info, { kind: 'failed', reason: '<b>HTTP 500</b>' });
+    expect(failed).not.toContain('<b>');
+    expect(failed).toMatch(/data-act="browser"/);
+    expect(progressText(1024 * 1024, 0)).toBe('1.0 MB');
+    expect(progressText(9, 8)).toContain('100%');
   });
 });
 

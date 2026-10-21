@@ -5,8 +5,9 @@
 //
 // At most once per 24 h, after the menu is up, the app asks GitHub for the latest release (one
 // unauthenticated GET to api.github.com, nothing sent but the request itself). A newer vX.Y.Z tag with an
-// .apk asset offers Download / Later / Skip this version; Download opens the APK's address in the system
-// browser, which downloads it, and Android then offers to install it. Offline, rate-limited or any other
+// .apk asset offers Update now / Later / Skip this version. The GitHub APK build downloads it inside the game
+// with a progress bar and opens Android's installer on it (app/updateUi.ts); older app builds and Android 6
+// open the APK's address in the system browser instead. Offline, rate-limited or any other
 // failure: nothing is shown. Settings > Check for updates asks at once and says what it found.
 
 import { Capacitor } from '@capacitor/core';

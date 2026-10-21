@@ -34,6 +34,25 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    buildFeatures {
+        buildConfig true
+    }
+    // Two builds of the same app (same applicationId, so either installs over the other when the key matches):
+    // - github: the APK on GitHub Releases. It downloads and installs its own updates in the app, so it alone
+    //   declares REQUEST_INSTALL_PACKAGES (src/github/AndroidManifest.xml). assembleGithubDebug / Release.
+    // - play: the .aab for Google Play, which updates it. Play forbids self-updates and rejects apps that ask
+    //   for the install permission without needing it. bundlePlayRelease.
+    flavorDimensions = ['store']
+    productFlavors {
+        github {
+            dimension 'store'
+            buildConfigField 'boolean', 'SELF_UPDATE', 'true'
+        }
+        play {
+            dimension 'store'
+            buildConfigField 'boolean', 'SELF_UPDATE', 'false'
+        }
+    }
     signingConfigs {
         release {
             if (keystorePropsFile.exists()) {
