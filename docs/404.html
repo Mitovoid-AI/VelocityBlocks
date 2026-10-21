@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page not found · Velocity Blocks</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0b1020">
+<!-- Served for any missing path, at any depth, so every link resolves from the site's root: /VelocityBlocks/ on
+     GitHub Pages (a project site), / on Vercel or any host that serves docs/ at the top. The icon and stylesheet
+     are added here after the base: as plain tags, the browser would fetch them early from the missing page's
+     own folder. -->
+<script>(function () {
+  var root = /^\/VelocityBlocks(\/|$)/.test(location.pathname) ? "/VelocityBlocks/" : "/";
+  var b = document.createElement("base"); b.href = root; document.head.appendChild(b);
+  var i = document.createElement("link"); i.rel = "icon"; i.type = "image/svg+xml"; i.href = root + "icon.svg"; document.head.appendChild(i);
+  var c = document.createElement("link"); c.rel = "stylesheet"; c.href = root + "styles.css"; document.head.appendChild(c);
+})();</script>
+<script>try { var t = localStorage.getItem("vb-site-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,700;0,800;0,900;1,900&display=swap" rel="stylesheet">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="./"><img data-src="icon.svg" alt="" width="28" height="28">Velocity Blocks</a></div></header>
+<main class="doc">
+  <div class="wrap">
+    <h1>Off the road.</h1>
+    <p>This page doesn't exist. Respawn at the last checkpoint:</p>
+    <p class="cta" style="margin-top:22px">
+      <a class="pill light" href="./">Back to the start</a>
+      <a class="pill dark" href="play/">Play in your browser</a>
+    </p>
+  </div>
+</main>
+<script>document.querySelectorAll("img[data-src]").forEach(function (m) { m.src = m.getAttribute("data-src"); });</script>
+</body>
+</html>

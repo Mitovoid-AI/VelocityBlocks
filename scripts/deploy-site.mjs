@@ -1,9 +1,9 @@
-// Publishes site-dist/ to the gh-pages branch of the origin remote (GitHub Pages serves that branch at
+// Publishes docs/ to the gh-pages branch of the origin remote (GitHub Pages serves that branch at
 // https://mitovoid-ai.github.io/VelocityBlocks/).
 //
 //   npm run site:deploy                      type-check, build the site and the web game, publish
 //   npm run site:deploy -- --dry-run         everything except the push (prints what would be published)
-//   npm run site:deploy -- --no-build        publish the site-dist/ that is already there
+//   npm run site:deploy -- --no-build        publish the docs/ that is already there
 //   options: --remote <url>  --message "<text>"  --keep (keep the temporary repository)
 //
 // It works in a temporary repository outside the project: your checkout, branches and working tree are
@@ -17,7 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DIST = path.join(ROOT, 'site-dist');
+const DIST = path.join(ROOT, 'docs');
 const BRANCH = 'gh-pages';
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -49,7 +49,7 @@ if (!flag('--no-build')) {
 }
 for (const f of ['index.html', '404.html', '.nojekyll', 'privacy.html', 'play/index.html']) {
   if (!fs.existsSync(path.join(DIST, f))) {
-    console.error(`site-dist/${f} is missing: run npm run site:build first (or drop --no-build).`);
+    console.error(`docs/${f} is missing: run npm run site:build first (or drop --no-build).`);
     process.exit(1);
   }
 }
@@ -90,7 +90,7 @@ try {
     console.log(`origin has no ${BRANCH} branch yet: this deploy creates it.`);
   }
 
-  // 4. Replace the branch's files with site-dist/.
+  // 4. Replace the branch's files with docs/.
   for (const e of fs.readdirSync(tmp)) if (e !== '.git') fs.rmSync(path.join(tmp, e), { recursive: true, force: true });
   fs.cpSync(DIST, tmp, { recursive: true });
   git(tmp, 'add', '-A');

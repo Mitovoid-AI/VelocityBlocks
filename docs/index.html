@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Velocity Blocks: block-track time-attack racer for Android</title>
+<meta name="description" content="A free block-track time-attack racer for Android and the browser. 24 tracks in Stadium, Desert and Water, a car, a bike and a truck, nitro, ghosts, a racing line and a track editor. No ads, no account.">
+<link rel="canonical" href="https://mitovoid-ai.github.io/VelocityBlocks/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Velocity Blocks">
+<meta property="og:title" content="Velocity Blocks: build it, drive it, beat the author">
+<meta property="og:description" content="Free block-track racer for Android. 24 tracks, cars, bikes and trucks, nitro, ghosts and a track editor. No ads, no account.">
+<meta property="og:url" content="https://mitovoid-ai.github.io/VelocityBlocks/">
+<meta property="og:image" content="https://mitovoid-ai.github.io/VelocityBlocks/img/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A truck firing its nitro over a turbo pad on a desert track at sunset">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b1020">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem("vb-site-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+  document.documentElement.classList.add("js");
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,700;0,800;0,900;1,900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="icon.svg" alt="" width="28" height="28">Velocity Blocks</a>
+    <button class="theme" type="button" id="theme" aria-label="Switch to light mode" title="Light or dark">
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-text">
+      <img class="hero-icon" src="icon.svg" alt="" width="88" height="88">
+      <h1 aria-label="Build it. Drive it. Beat the author.">
+        <span class="line" aria-hidden="true"><span class="w" style="--i:0">Build</span> <span class="w" style="--i:1">it.</span></span>
+        <span class="line" aria-hidden="true"><span class="w" style="--i:2">Drive</span> <span class="w" style="--i:3">it.</span></span>
+        <span class="line grad" aria-hidden="true"><span class="w" style="--i:4">Beat</span> <span class="w" style="--i:5">the</span> <span class="w" style="--i:6">author.</span></span>
+      </h1>
+      <p class="lede">Velocity Blocks is a time-attack racer made of road blocks. Take every checkpoint, shave off tenths, and chase the hidden Author medal across 24 tracks. Then build your own.</p>
+      <div class="cta">
+        <a class="pill light big" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download for Android</a>
+        <p class="cta-meta">Free · Android 6.0+ · <span data-apk-size>8.3 MB</span><span data-apk-version></span></p>
+      </div>
+      <p class="fine">Android may block installs from unknown sources. If it does, tap <strong>Settings</strong>, allow your browser (or file manager) to install apps, go back and tap <strong>Install</strong>.</p>
+      <p class="fine alt">No Android phone? <a href="play/">Play it in your browser</a>.</p>
+    </div>
+
+    <div class="deck-wrap">
+      <div class="deck" id="deck" tabindex="0" role="region" aria-roledescription="carousel" aria-label="What's in the game. Tap or swipe the cards, or use the arrow keys.">
+        <article class="card" style="--c:#ff9a6b;--s:#2f6fd6" data-shape="blocks" aria-roledescription="slide">
+          <div class="eyebrow">24 tracks, White to Black</div>
+          <h3>Stadium, Desert, Water</h3>
+          <div class="foot"><p>Floodlit stadiums, dunes at sunset, bridges over lakes and rivers.</p><a class="open" href="#tracks">Open</a></div>
+        </article>
+        <article class="card" style="--c:#ffd75e;--s:#ff5a36" data-shape="burst" aria-roledescription="slide">
+          <div class="eyebrow">Each with its own records</div>
+          <h3>Car, bike, truck</h3>
+          <div class="foot"><p>Four car bodies, plus realistic models if you want them.</p><a class="open" href="#vehicles">Open</a></div>
+        </article>
+        <article class="card" style="--c:#6ee7ff;--s:#ff6a3d" data-shape="chevron" aria-roledescription="slide">
+          <div class="eyebrow">Recharges six seconds after every boost</div>
+          <h3>Nitro</h3>
+          <div class="foot"><p>Fire it on the straights and feel the camera stretch.</p><a class="open" href="#vehicles">Open</a></div>
+        </article>
+        <article class="card" style="--c:#b6f36b;--s:#7c3aed" data-shape="scallop" aria-roledescription="slide">
+          <div class="eyebrow">Green, yellow, red</div>
+          <h3>Racing line</h3>
+          <div class="foot"><p>Shows where to stay flat out, where to lift and where to brake.</p><a class="open" href="#handling">Open</a></div>
+        </article>
+        <article class="card" style="--c:#c4b5fd;--s:#ffcf3f" data-shape="blob" aria-roledescription="slide">
+          <div class="eyebrow">Your best run rides along</div>
+          <h3>Ghosts and replays</h3>
+          <div class="foot"><p>Splits at every checkpoint, replays from trackside cameras.</p><a class="open" href="#results">Open</a></div>
+        </article>
+        <article class="card" style="--c:#fda4c8;--s:#0aa5c2" data-shape="blocks" aria-roledescription="slide">
+          <div class="eyebrow">32 × 32 grid, 8 levels</div>
+          <h3>Track editor</h3>
+          <div class="foot"><p>Snap blocks together, test-drive, share the file.</p><a class="open" href="#editor">Open</a></div>
+        </article>
+        <article class="card" style="--c:#f7c48a;--s:#2f6fd6" data-shape="burst" aria-roledescription="slide">
+          <div class="eyebrow">Buttons, wheel or tilt</div>
+          <h3>Your controls</h3>
+          <div class="foot"><p>Analog gas and brake bars, gamepad, keyboard. Walls if you like.</p><a class="open" href="#controls">Open</a></div>
+        </article>
+      </div>
+      <div class="dots" id="dots" role="group" aria-label="Choose a card"></div>
+      <p class="deck-hint">Tap or swipe the cards</p>
+      <p class="sr" id="deck-live" aria-live="polite"></p>
+    </div>
+  </div>
+</section>
+
+<section id="why">
+  <div class="wrap" data-reveal>
+    <h2>Why Velocity Blocks</h2>
+    <div class="why">
+      <div class="why-row"><div class="ic" style="--t:#b6f36b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12V8H6a2 2 0 0 1 0-4h12v4M4 6v12a2 2 0 0 0 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg></div>
+        <div><h3>Free, and nothing to sign up for</h3><p>The APK has the whole game unlocked. No ads, no account, no tracking.</p></div></div>
+      <div class="why-row"><div class="ic" style="--t:#6ee7ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 2l20 20M8.5 16.5a5 5 0 0 1 7 0M2 8.8a15 15 0 0 1 4.2-2.7M10.7 5.1A15 15 0 0 1 22 8.8M5 12.9a10 10 0 0 1 5.2-2.7M17.4 12.5c.6.3 1.1.7 1.6 1.2M12 20h.01"/></svg></div>
+        <div><h3>Plays offline</h3><p>Every track, the editor, your times, medals and ghosts live on your phone.</p></div></div>
+      <div class="why-row"><div class="ic" style="--t:#ffd75e"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a8 8 0 1 1 16 0M12 14l4-5"/></svg></div>
+        <div><h3>Smooth on modest phones</h3><p>Graphics pick Low, Medium or High by themselves to keep the frame rate up. The physics run at a fixed 100 Hz either way.</p></div></div>
+      <div class="why-row"><div class="ic" style="--t:#ff9a6b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg></div>
+        <div><h3>Open source</h3><p>The code is MIT-licensed on GitHub. Read it, build it, send a pull request.</p></div></div>
+    </div>
+    <div class="note" id="updates"><strong>Already have it?</strong><p>The app finds new versions by itself, at most once a day, and asks before updating. Tap Download, install over the top, and your times, medals, ghosts and tracks stay as they are. (APKs older than 1.2.0 can't check yet: install the new one by hand once.)</p></div>
+  </div>
+</section>
+
+<section id="features" class="features">
+  <div class="wrap">
+    <div class="feature" id="tracks" data-reveal>
+      <div class="feature-text">
+        <span class="tag" style="--t:#ff9a6b">24 tracks</span>
+        <h2>Three worlds, one clock</h2>
+        <p>Every track is a sprint against the timer: a 3-2-1 countdown, a 10 ms clock, checkpoints in any order, and an instant restart when a run goes wrong.</p>
+        <ul>
+          <li><strong>Stadium</strong>, A01 to A12: from the White warm-ups to the Black Grand Tour</li>
+          <li><strong>Desert</strong>, D01 to D06: sand off the road, dunes, mesas and sunsets</li>
+          <li><strong>Water</strong>, W01 to W06: bridges and jumps over lakes and rivers, splash zones</li>
+          <li>Bronze, Silver and Gold, then the Author medal: an autopilot has to finish every track, and its time is the one to beat</li>
+        </ul>
+      </div>
+      <figure class="shot"><img src="img/race-stadium-640.webp" srcset="img/race-stadium-640.webp 640w, img/race-stadium.webp 1280w" sizes="(min-width: 900px) 560px, calc(100vw - 32px)" width="1280" height="720" loading="lazy" decoding="async" alt="A red sports car on A07 Turbo Valley at 219 km/h, with the race timer, checkpoint counter and touch controls on screen"></figure>
+    </div>
+
+    <div class="feature flip" id="water" data-reveal>
+      <div class="feature-text">
+        <span class="tag" style="--t:#6ee7ff">Desert and Water</span>
+        <h2>Off the road is slow. In the lake is worse.</h2>
+        <p>Ground-level roads have no barriers, so you can cut across the grass or the sand, but they hold you to about 100 km/h. A checkpoint only counts between its posts, so shortcuts can't skip one.</p>
+        <p>Drop into the water and you're back at the last checkpoint, with the clock still running. Prefer a friendlier ride? Turn on <strong>Walls on all roads</strong>; those times are kept apart.</p>
+      </div>
+      <figure class="shot"><img src="img/water-lagoon-640.webp" srcset="img/water-lagoon-640.webp 640w, img/water-lagoon.webp 1280w" sizes="(min-width: 900px) 560px, calc(100vw - 32px)" width="1280" height="720" loading="lazy" decoding="async" alt="W04 Lagoon: the road curves past a raised bridge on pillars standing in a lake, with palm trees and a beach behind"></figure>
+    </div>
+
+    <div class="feature" id="vehicles" data-reveal>
+      <div class="feature-text">
+        <span class="tag" style="--t:#ffd75e">Car, bike, truck</span>
+        <h2>Pick a ride, fire the nitro</h2>
+        <p>The car comes with four bodies (Racer, Buggy, Muscle and Formula) that look different and drive the same. The bike and the truck handle their own way and keep their own records and medals.</p>
+        <p>Nitro sits under your left thumb and recharges six seconds after every boost. Turbo and boost pads on the road add more.</p>
+        <p>Want it to look real? Switch the look to <strong>Realistic</strong> for the Sport, Coupe and Sedan, the Cafe Racer bike or the LCT 3000 '95 truck.</p>
+      </div>
+      <figure class="shot"><img src="img/desert-truck-nitro-640.webp" srcset="img/desert-truck-nitro-640.webp 640w, img/desert-truck-nitro.webp 1280w" sizes="(min-width: 900px) 560px, calc(100vw - 32px)" width="1280" height="720" loading="lazy" decoding="async" alt="The realistic LCT 3000 truck firing its nitro over a red turbo pad on D04 Canyon Leap at sunset"></figure>
+    </div>
+
+    <div class="feature flip" id="handling" data-reveal>
+      <div class="feature-text">
+        <span class="tag" style="--t:#b6f36b">Real handling</span>
+        <h2>Learn the line, then lose it</h2>
+        <p>Turn on the racing line and the road shows you what a pace driver would do: green for full throttle, yellow to lift, red to brake. It plans with the car's real grip and braking, and custom tracks get theirs worked out in the background.</p>
+        <ul>
+          <li>Downforce: fast corners hold more grip than slow ones</li>
+          <li>ABS brakes and traction control (Normal, or Low to let the rear wheels spin)</li>
+          <li>Tap the brake while steering to drift</li>
+        </ul>
+      </div>
+      <figure class="shot"><img src="img/racing-line-640.webp" srcset="img/racing-line-640.webp 640w, img/racing-line.webp 1280w" sizes="(min-width: 900px) 560px, calc(100vw - 32px)" width="1280" height="720" loading="lazy" decoding="async" alt="A08 Hairpins: the racing line turns yellow and red on the road ahead of the car before a hairpin"></figure>
+    </div>
+
+    <div class="feature" id="results" data-reveal>
+      <div class="feature-text">
+        <span class="tag" style="--t:#c4b5fd">Ghosts and replays</span>
+        <h2>Race yourself</h2>
+        <p>Your personal best is saved and raced as a ghost, with split times at every checkpoint. Finish and the results card counts your medals in.</p>
+        <p>Watch the run back from chase, far and trackside cameras at full, half or quarter speed.</p>
+      </div>
+      <figure class="shot"><img src="img/results-640.webp" srcset="img/results-640.webp 640w, img/results.webp 1280w" sizes="(min-width: 900px) 560px, calc(100vw - 32px)" width="1280" height="720" loading="lazy" decoding="async" alt="Results card for A01 Warm-Up: 0:12.86, first finish, Author medal, with Bronze, Silver, Gold and Author medals all new"></figure>
+    </div>
+
+    <div class="feature flip" id="editor" data-reveal>
+      <div class="feature-text">
+        <span class="tag" style="--t:#fda4c8">Track editor</span>
+        <h2>Snap. Test. Share.</h2>
+        <p>Fifteen block types on a 32 × 32 grid with eight height levels: straights, curves, slopes, boost and turbo pads, jump ramps, splash zones and water.</p>
+        <ul>
+          <li>Rotate, erase and undo, with route checks as you build</li>
+          <li>An autopilot check, then test drives: your first finish sets the author time</li>
+          <li>Save to My tracks, or export and import <code>.vbtrack.json</code> files</li>
+        </ul>
+      </div>
+      <figure class="shot"><img src="img/editor-640.webp" srcset="img/editor-640.webp 640w, img/editor.webp 1280w" sizes="(min-width: 900px) 560px, calc(100vw - 32px)" width="1280" height="720" loading="lazy" decoding="async" alt="The track editor: a block palette on the left and a 28-block track with a raised section on the grid"></figure>
+    </div>
+
+    <div class="feature" id="controls" data-reveal>
+      <div class="feature-text">
+        <span class="tag" style="--t:#f7c48a">Your controls</span>
+        <h2>Drive it your way</h2>
+        <p>Steer with the arrow buttons, an on-screen wheel or by tilting the phone. Drive with analog gas and brake bars, or round on/off pedals. Auto-accelerate is one switch away.</p>
+        <p>Your driver profile holds a name, a photo that floats above your car (it never leaves the phone), the colour, the body and the camera. Keyboard and gamepad work too.</p>
+      </div>
+      <figure class="shot"><img src="img/home-640.webp" srcset="img/home-640.webp 640w, img/home.webp 1280w" sizes="(min-width: 900px) 560px, calc(100vw - 32px)" width="1280" height="720" loading="lazy" decoding="async" alt="The home screen: the Velocity Blocks logo and menu over a stadium track, with the driver card in the corner"></figure>
+    </div>
+  </div>
+</section>
+
+<section id="play" class="play">
+  <div class="wrap" data-reveal>
+    <div class="play-box">
+      <div>
+        <h2>Play in your browser</h2>
+        <p>The same game with everything unlocked, on a computer or a phone held sideways. Keyboard, gamepad or touch. Records stay in that browser.</p>
+      </div>
+      <a class="pill light" href="play/"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.8v10.4a.6.6 0 0 0 .9.5l8.2-5.2a.6.6 0 0 0 0-1L5.4 2.3a.6.6 0 0 0-.9.5Z"/></svg>Play now</a>
+    </div>
+  </div>
+</section>
+
+<section id="free">
+  <div class="wrap" data-reveal>
+    <h2>Free, and the Full Game</h2>
+    <p class="intro">This APK and the browser version have everything unlocked. The Google Play version will be free too, with one optional one-time purchase, the Full Game, that opens the rest. No subscription and no ads in any of them.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="What each version includes">
+      <table class="plans">
+        <thead>
+          <tr><th scope="col">What you get</th><th scope="col" class="c">APK and browser</th><th scope="col" class="c">Google Play</th><th scope="col" class="c">Play + Full Game</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Stadium campaign, A01 to A12</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
+          <tr><th scope="row">First Desert and Water tracks, D01 and W01</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
+          <tr><th scope="row">D02 to D06 and W02 to W06</th><td class="c yes">Yes</td><td class="c no">No</td><td class="c yes">Yes</td></tr>
+          <tr><th scope="row">The car, with four bodies</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
+          <tr><th scope="row">The bike and the truck</th><td class="c yes">Yes</td><td class="c no">No</td><td class="c yes">Yes</td></tr>
+          <tr><th scope="row">Realistic models</th><td class="c yes">Yes</td><td class="c no">No</td><td class="c yes">Yes</td></tr>
+          <tr><th scope="row">Track editor and My tracks</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
+          <tr><th scope="row">Price</th><td class="c">Free</td><td class="c">Free</td><td class="c">Pay once</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="fine">Why give it away here? The code is MIT, so anyone can build the whole game for free. The Play purchase pays for the convenience of the store build and supports development.</p>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap" data-reveal>
+    <h2>What leaves your phone</h2>
+    <p class="intro">Nothing, apart from one small check for updates.</p>
+    <div class="lists">
+      <div><strong>Stays on your phone</strong><ul>
+        <li>Your name, photo, colour and vehicle</li>
+        <li>Times, medals, ghosts and replays</li>
+        <li>The tracks you build, and your settings</li>
+      </ul></div>
+      <div><strong>Goes over the network</strong><ul>
+        <li>The APK asks GitHub for the latest release, at most once a day. No personal data, identifiers or game data go with it.</li>
+        <li>The Google Play version never asks: Play updates it.</li>
+        <li>No ads, no account, no analytics, no crash reporting.</li>
+      </ul></div>
+    </div>
+    <p class="fine">The details are in the <a href="privacy.html">privacy policy</a>.</p>
+  </div>
+</section>
+
+<section id="credits">
+  <div class="wrap" data-reveal>
+    <h2>Credits</h2>
+    <p class="intro">The code, physics, tracks, textures, sounds and the classic vehicles are all original, made in code from scratch. The realistic vehicles are 3D models by other artists, used under <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0</a>:</p>
+    <ul class="credit-list">
+      <li><a href="https://sketchfab.com/3d-models/generic-passenger-car-pack-20f9af9b8a404d5cb022ac6fe87f21f5">Generic passenger car pack</a> by Comrade1280: the Sport, Coupe and Sedan</li>
+      <li><a href="https://sketchfab.com/3d-models/cafe-racer-c02dec85ac0541b8ab6dd56098706b50">Cafe Racer</a> by Milin Andrei: the realistic bike (the rider is the game's own)</li>
+      <li><a href="https://sketchfab.com/3d-models/lct-3000-95-low-poly-model-663a0953c038434a918cb85725c88ffa">LCT 3000 '95</a> by Daniel Zhabotinsky: the realistic truck</li>
+    </ul>
+    <p class="fine">What was changed in each model is listed in <a href="https://github.com/Mitovoid-AI/VelocityBlocks/blob/main/public/vehicles/CREDITS.md">CREDITS.md</a>. TrackMania is a trademark of Ubisoft and Nadeo; Velocity Blocks is an independent project and is not affiliated with or endorsed by them.</p>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Mitovoid-AI</span>
+    <a href="https://github.com/Mitovoid-AI/VelocityBlocks">GitHub</a>
+    <a href="https://github.com/Mitovoid-AI/VelocityBlocks/releases">Releases</a>
+    <a href="https://github.com/Mitovoid-AI/VelocityBlocks/blob/main/LICENSE">MIT license</a>
+    <a href="privacy.html">Privacy policy</a>
+    <a href="https://github.com/Mitovoid-AI/VelocityBlocks/issues">Report a problem</a>
+  </div>
+</footer>
+
+<div class="dock">
+  <button class="pill dark" type="button" id="menu-open" aria-haspopup="dialog" aria-controls="menu"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>Menu</button>
+  <a class="pill light" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download</a>
+</div>
+
+<dialog class="menu" id="menu" aria-label="Menu">
+  <nav>
+    <a href="#why">Why Velocity Blocks</a>
+    <a href="#tracks">Tracks <span>24</span></a>
+    <a href="#vehicles">Vehicles and nitro</a>
+    <a href="#editor">Track editor</a>
+    <a href="#play">Play in your browser</a>
+    <a href="#free">Free and Full Game</a>
+    <a href="#privacy">Privacy</a>
+    <a href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk>Download <span data-apk-size>8.3 MB</span></a>
+  </nav>
+</dialog>
+
+<script src="script.js" defer></script>
+</body>
+</html>

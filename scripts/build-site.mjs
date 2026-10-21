@@ -1,7 +1,7 @@
-// Builds the GitHub Pages site into site-dist/:
+// Builds the GitHub Pages site into docs/:
 //   1. renders store/privacy-policy.md into site/privacy.html (generated, kept in the repo so site/ is complete);
-//   2. copies site/ to site-dist/;
-//   3. builds the web game (the plain, ad-free build) into site-dist/play/ with a relative base, so it runs from
+//   2. copies site/ to docs/;
+//   3. builds the web game (the plain, ad-free build) into docs/play/ with a relative base, so it runs from
 //      https://mitovoid-ai.github.io/VelocityBlocks/play/ (realistic models and the KTX2 transcoder included).
 //
 //   npm run site:build                  type-check, then all of the above
@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SITE = path.join(ROOT, 'site');
-const OUT = path.join(ROOT, 'site-dist');
+const OUT = path.join(ROOT, 'docs');
 const PLAY = path.join(OUT, 'play');
 const noGame = process.argv.includes('--no-game');
 
@@ -147,7 +147,7 @@ if (keep) {
   fs.renameSync(path.join(keep, 'play'), PLAY);
   fs.rmSync(keep, { recursive: true, force: true });
 }
-console.log(`site/ copied to site-dist/`);
+console.log(`site/ copied to docs/`);
 
 if (!noGame) {
   const { build } = await import('vite');
@@ -161,6 +161,6 @@ if (!noGame) {
     build: { outDir: PLAY, emptyOutDir: true },
   });
   const n = checkGame();
-  console.log(`web game built into site-dist/play/ (${n} files)`);
+  console.log(`web game built into docs/play/ (${n} files)`);
 }
-console.log(`site-dist/: ${(size(OUT) / 1048576).toFixed(1)} MB. Preview: npm run site:serve, then open http://localhost:5371/VelocityBlocks/`);
+console.log(`docs/: ${(size(OUT) / 1048576).toFixed(1)} MB. Preview: npm run site:serve, then open http://localhost:5371/VelocityBlocks/`);

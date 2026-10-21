@@ -164,12 +164,16 @@ npm run cap:sync            # build web + copy into android/ and ios/
 
 ```bash
 cd android
-gradlew.bat assembleDebug   # Windows  (./gradlew on macOS/Linux)
-# → android/app/build/outputs/apk/debug/app-debug.apk
+gradlew.bat assembleGithubDebug   # Windows  (./gradlew on macOS/Linux)
+# → android/app/build/outputs/apk/github/debug/app-github-debug.apk
 ```
 
 For a Play Store release, create a keystore, configure `signingConfigs` in
-`android/app/build.gradle`, and run `gradlew bundleRelease`.
+`android/app/build.gradle`, and run `gradlew bundlePlayRelease`.
+
+The app has two flavors with the same package name: `github` (the APK on GitHub Releases, which downloads and
+installs its own updates and alone declares `REQUEST_INSTALL_PACKAGES`) and `play` (the `.aab` for Google Play,
+which Play updates; Play forbids self-updates and that permission).
 
 **iOS** needs macOS with Xcode 15+ and CocoaPods:
 
@@ -234,7 +238,7 @@ way. The web, portal and `npm run dev` builds and iOS never check.
    npm run release:apk -- --debug --notes-file notes.md               # debug-signed, like the APKs shared so far
    ```
 
-   It runs `npm run build`, `npx cap sync android` and gradle (`assembleRelease` or `assembleDebug`), copies the
+   It runs `npm run build`, `npx cap sync android` and gradle (`assembleGithubRelease` or `assembleGithubDebug`), copies the
    APK to `builds/VelocityBlocks-vX.Y.Z.apk` and prints a command like this (it never publishes by itself):
 
    ```bash
@@ -243,7 +247,9 @@ way. The web, portal and `npm run dev` builds and iOS never check.
 
 3. Check the APK on a phone, then run the printed command (needs the [GitHub CLI](https://cli.github.com/),
    `gh auth login`). The tag must be `v` + the package.json version. Do not mark it as a draft or a pre-release:
-   the apps only see the latest full release. The notes are what the update pop-up shows.
+   the apps only see the latest full release. The notes are what the update pop-up shows. Installed GitHub
+   APKs (1.2.2 and later, Android 7+) download the update inside the game with a progress bar and open
+   Android's installer; older ones open the download in the browser.
 4. For Google Play, `npm run android:release` builds the `.aab` with the same version (Play installs never
    see the GitHub release).
 
@@ -254,12 +260,22 @@ framework) with the web game under `/play/`. Its source is in `site/`: `index.ht
 `404.html`, `.nojekyll`, the icons and the screenshots in `site/img/` (real 1280 × 720 captures, each with a
 640 px copy). `site/privacy.html` is generated from `store/privacy-policy.md`; edit the Markdown.
 
+The built site is committed in `docs/` (pages plus the game in `docs/play/`, about 5.5 MB): a ready-to-serve
+static folder, so a host never needs the source. Rebuild and commit it after changing `site/` or the game.
+
 ```bash
-npm run site:build              # type-check, render privacy.html, copy site/ and build the game into site-dist/play/
+npm run site:build              # type-check, render privacy.html, copy site/ to docs/ and build the game into docs/play/
 npm run site:serve              # http://localhost:5371/VelocityBlocks/ (the same path as GitHub Pages)
+npm run site:serve -- --root    # http://localhost:5371/ (docs/ at the top, as Vercel serves it)
 npm run site:deploy -- --dry-run   # everything except the push
-npm run site:deploy             # build and publish site-dist/ to the gh-pages branch
+npm run site:deploy             # build and publish docs/ to the gh-pages branch
 ```
+
+**Vercel:** import the repository, set **Root Directory** to `docs`, **Framework Preset** to *Other*, and leave
+the build command and output directory empty (no build runs; only `docs/` is deployed).
+`docs/vercel.json` (from `site/vercel.json`) adds trailing slashes, so `/play` becomes `/play/` and the
+game's relative paths resolve, and sets caching and content types for the game files. Vercel redeploys on
+every push to `main`.
 
 - The download buttons link to `releases/latest/download/VelocityBlocks.apk`, so every new release is picked
   up without touching the site, as long as the release has an asset with exactly that name. `script.js` asks
@@ -267,7 +283,7 @@ npm run site:deploy             # build and publish site-dist/ to the gh-pages b
   static text stays and the buttons still work.
 - The game in `play/` is the plain ad-free web build (everything unlocked) with a relative base; the build
   checks that the realistic models and the KTX2 transcoder are in it.
-- `site:deploy` works in a temporary repository: it puts `site-dist/` on top of the current `gh-pages`
+- `site:deploy` works in a temporary repository: it puts `docs/` on top of the current `gh-pages`
   (creating the branch the first time) and pushes without `--force`; your checkout and branches are not
   touched. Once, in the repository settings: **Pages > Build and deployment > Deploy from a branch >
   `gh-pages` / (root)**.

@@ -36,6 +36,3 @@ dist-*/
 
 # Play Store signing (see android/keystore.properties.example)
 android/keystore.properties
-
-# GitHub Pages site build (npm run site:build)
-site-dist/

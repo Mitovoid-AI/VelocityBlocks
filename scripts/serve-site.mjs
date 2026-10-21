@@ -1,14 +1,15 @@
-// Serves site-dist/ under /VelocityBlocks/, the path GitHub Pages uses for this project site, so relative URLs,
+// Serves docs/ under /VelocityBlocks/, the path GitHub Pages uses for this project site, so relative URLs,
 // the 404 page and the game in play/ behave as they will online.
 //   npm run site:serve              → http://localhost:5371/VelocityBlocks/
+//   npm run site:serve -- --root    → http://localhost:5371/ (docs/ at the top, as Vercel serves it)
 //   node scripts/serve-site.mjs --port 8080
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'site-dist');
-const BASE = '/VelocityBlocks/';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs');
+const BASE = process.argv.includes('--root') ? '/' : '/VelocityBlocks/';
 const i = process.argv.indexOf('--port');
 const PORT = i > 0 ? Number(process.argv[i + 1]) : 5371;
 
@@ -40,7 +41,7 @@ http
   .createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     let p = decodeURIComponent(url.pathname);
-    if (p === '/' || p === BASE.slice(0, -1)) {
+    if (BASE !== '/' && (p === '/' || p === BASE.slice(0, -1))) {
       res.writeHead(301, { location: BASE });
       return res.end();
     }
@@ -68,4 +69,4 @@ http
     res.writeHead(404);
     res.end('Not found');
   })
-  .listen(PORT, () => console.log(`site-dist/ at http://localhost:${PORT}${BASE}`));
+  .listen(PORT, () => console.log(`docs/ at http://localhost:${PORT}${BASE}`));
