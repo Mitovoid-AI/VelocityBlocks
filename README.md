@@ -247,6 +247,32 @@ way. The web, portal and `npm run dev` builds and iOS never check.
 4. For Google Play, `npm run android:release` builds the `.aab` with the same version (Play installs never
    see the GitHub release).
 
+## Website
+
+The project site, https://mitovoid-ai.github.io/VelocityBlocks/, is a plain HTML/CSS/JS landing page (no
+framework) with the web game under `/play/`. Its source is in `site/`: `index.html`, `styles.css`, `script.js`,
+`404.html`, `.nojekyll`, the icons and the screenshots in `site/img/` (real 1280 × 720 captures, each with a
+640 px copy). `site/privacy.html` is generated from `store/privacy-policy.md`; edit the Markdown.
+
+```bash
+npm run site:build              # type-check, render privacy.html, copy site/ and build the game into site-dist/play/
+npm run site:serve              # http://localhost:5371/VelocityBlocks/ (the same path as GitHub Pages)
+npm run site:deploy -- --dry-run   # everything except the push
+npm run site:deploy             # build and publish site-dist/ to the gh-pages branch
+```
+
+- The download buttons link to `releases/latest/download/VelocityBlocks.apk`, so every new release is picked
+  up without touching the site, as long as the release has an asset with exactly that name. `script.js` asks
+  the GitHub API for the latest release only to show its version and size; offline or rate-limited, the
+  static text stays and the buttons still work.
+- The game in `play/` is the plain ad-free web build (everything unlocked) with a relative base; the build
+  checks that the realistic models and the KTX2 transcoder are in it.
+- `site:deploy` works in a temporary repository: it puts `site-dist/` on top of the current `gh-pages`
+  (creating the branch the first time) and pushes without `--force`; your checkout and branches are not
+  touched. Once, in the repository settings: **Pages > Build and deployment > Deploy from a branch >
+  `gh-pages` / (root)**.
+- `node scripts/build-site.mjs --no-game` rebuilds only the pages (keeps the last `play/`), for quick edits.
+
 ## Full Game (Android in-app purchase)
 
 The Android app is free to play, with one optional, one-time purchase through Google Play: the
@@ -314,7 +340,8 @@ src/
               the app version and the GitHub update check for APK installs (updates.ts)
   ui/         HUD, DOM helpers, styles
 tests/        vitest suites
-scripts/      dev tools (see above)
+scripts/      dev tools (see above), site build/serve/deploy
+site/         the GitHub Pages site (see Website)
 android/ ios/ Capacitor native projects
 ```
 

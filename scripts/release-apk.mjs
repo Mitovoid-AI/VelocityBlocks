@@ -72,6 +72,10 @@ const apkName = `VelocityBlocks-${version}.apk`;
 const apk = join(outDir, apkName);
 copyFileSync(built, apk);
 const apkRel = relative(root, apk).split('\\').join('/');
+// The same file under a fixed name: the website's button links releases/latest/download/VelocityBlocks.apk.
+const stable = join(outDir, 'VelocityBlocks.apk');
+copyFileSync(built, stable);
+const stableRel = relative(root, stable).split('\\').join('/');
 const mb = (statSync(apk).size / (1024 * 1024)).toFixed(1);
 
 const notesFile = option('--notes-file');
@@ -84,7 +88,10 @@ Built ${apkRel} (${mb} MB, ${variant}-signed, version ${version}).
 
 Publish it (run from ${root}):
 
-  gh release create ${tag} "${apkRel}" --repo ${REPO} --title "Velocity Blocks ${version}" ${notesArg}
+  gh release create ${tag} "${apkRel}" "${stableRel}" --repo ${REPO} --title "Velocity Blocks ${version}" ${notesArg}
+
+- Both files are the same APK: the versioned one is for people browsing the releases, VelocityBlocks.apk
+  keeps the website's download link (releases/latest/download/VelocityBlocks.apk) pointing at the newest.
 
 - The release notes (the --notes text or file) are what the update pop-up shows, cut to 600 characters.
 - Do not add --draft or --prerelease: the apps only see the latest full release.

@@ -26,7 +26,10 @@
     "android:open": "cap open android",
     "ios:open": "cap open ios",
     "android:release": "npm run cap:sync && cd android && .\\gradlew.bat bundleRelease",
-    "release:apk": "node scripts/release-apk.mjs"
+    "release:apk": "node scripts/release-apk.mjs",
+    "site:build": "tsc --noEmit && node scripts/build-site.mjs",
+    "site:serve": "node scripts/serve-site.mjs",
+    "site:deploy": "node scripts/deploy-site.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.1",
