@@ -81,6 +81,7 @@ One **one-time product** (a non-consumable "managed product"): the app sells not
   W01, the Car with its four bodies, the track editor and My tracks.
 - **Price**: your choice (for example US$2.99); Play converts it to local prices.
 - The browser builds (CrazyGames, Poki, web) have everything unlocked and never show it.
+- The APKs on GitHub Releases (any install not from Google Play) also have everything unlocked: only Play installs can be billed.
 
 ### Play Console steps
 

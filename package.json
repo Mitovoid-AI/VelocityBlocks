@@ -1,7 +1,7 @@
 {
   "name": "velocity-blocks",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Velocity Blocks: a single-player block-track time-attack racer for Web, Android and iOS.",
   "license": "MIT",
   "repository": {

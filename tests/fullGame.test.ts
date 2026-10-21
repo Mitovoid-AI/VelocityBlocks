@@ -12,6 +12,7 @@ import {
   entryLock,
   FullGame,
   fullGame,
+  isSideloadInstall,
   modelLocked,
   premiumTrackIds,
   setFullGame,
@@ -132,6 +133,33 @@ describe('builds', () => {
     setFullGame(null);
     expect(fullGame().kind).toBe('web');
     expect(fullGame().unlocked).toBe(true);
+  });
+});
+
+describe('APK installs (not from Google Play)', () => {
+  it('only a known non-Play installer counts as a sideload', () => {
+    expect(isSideloadInstall({ known: true, installer: 'com.android.chrome' })).toBe(true);
+    expect(isSideloadInstall({ known: true, installer: 'com.google.android.packageinstaller' })).toBe(true);
+    expect(isSideloadInstall({ known: true, installer: null })).toBe(true); // adb
+    expect(isSideloadInstall({ known: true, installer: 'com.android.vending' })).toBe(false);
+    expect(isSideloadInstall({ known: true, installer: 'com.google.android.feedback' })).toBe(false);
+    // Android would not say: keep the Play behaviour, so a Play install never opens by accident.
+    expect(isSideloadInstall({ known: false, installer: null })).toBe(false);
+  });
+
+  it('opens everything with no store and no dev switch, quietly', () => {
+    for (const kind of ['android-release', 'android-debug'] as const) {
+      const { fg } = android(false, kind, 'free');
+      const heard = vi.fn();
+      fg.onChange(heard);
+      fg.markSideloaded();
+      expect(fg.isSideloaded).toBe(true);
+      expect(fg.billing).toBe(false);
+      expect(fg.devTools).toBe(false);
+      expect(fg.unlocked).toBe(true);
+      expect(heard).not.toHaveBeenCalled();
+      expect(vehicleLocked('bike')).toBe(false);
+    }
   });
 });
 

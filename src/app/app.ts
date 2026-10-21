@@ -15,7 +15,7 @@ import { Input, isTouchDevice, type Action, type ActionSource } from '../input/i
 import { TouchControls } from '../input/touchControls';
 import { STEER_LABEL } from '../input/touchModel';
 import { TouchWatch } from '../input/touchWatch';
-import { deviceInfo, keepAwake, setGestureExclusion, watchGestureInsets, type DeviceInfo } from '../platform/native';
+import { deviceInfo, installSource, keepAwake, setGestureExclusion, watchGestureInsets, type DeviceInfo } from '../platform/native';
 import { findCdvPurchase, Purchases, type CdvNamespace } from '../platform/purchases';
 import { runtimeChannel, UpdateChecker, type UpdateInfo } from '../platform/updates';
 import { CameraRig } from '../render/cameraRig';
@@ -42,6 +42,7 @@ import {
   effectiveVehicle,
   entryLock,
   fullGame,
+  isSideloadInstall,
   premiumTrackIds,
   trackTheme,
   vehicleLocked,
@@ -468,6 +469,13 @@ export class App {
    */
   async startBilling(): Promise<void> {
     const fg = fullGame();
+    // An APK from GitHub (not a Play install): nothing can be bought there, so everything is open, as on
+    // the web; the menus drawn before Android answered are redrawn without locks. The dev simulation
+    // (?iap=) keeps the store.
+    if (fg.billing && !devSimulation() && isSideloadInstall(await installSource())) {
+      fg.markSideloaded();
+      this.redrawLockScreens();
+    }
     fg.onChange(() => this.fullGameChanged());
     if (!fg.billing) return;
     let find: () => CdvNamespace | undefined = findCdvPurchase;
@@ -502,6 +510,11 @@ export class App {
       return;
     }
     if (unlocked) toast('Full Game unlocked. Thank you!', 3000);
+    this.redrawLockScreens();
+  }
+
+  /** Redraw the screens that show locks (home, campaign), keeping the campaign's scroll. */
+  private redrawLockScreens(): void {
     const screen = currentScreen();
     if (screen?.classList.contains('home')) this.mainMenu();
     else if (screen?.classList.contains('campaign')) this.campaignMenu(screen.scrollTop);

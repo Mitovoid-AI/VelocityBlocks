@@ -97,14 +97,30 @@ export class FullGame {
     this.dev = kind === 'android-debug' ? persist.loadDev() : null;
   }
 
+  /** Installed from an APK (GitHub releases), not from Google Play: everything open, like the web build. */
+  private sideloaded = false;
+
   /** This build sells the Full Game through Google Play. */
   get billing(): boolean {
-    return this.kind === 'android-debug' || this.kind === 'android-release';
+    return !this.sideloaded && (this.kind === 'android-debug' || this.kind === 'android-release');
   }
 
   /** The hidden dev switch (Settings > tap the version 7 times) is available. */
   get devTools(): boolean {
-    return this.kind === 'android-debug';
+    return !this.sideloaded && this.kind === 'android-debug';
+  }
+
+  /**
+   * Android said an app other than Google Play installed this copy: no store can sell to it (Google only
+   * bills Play installs), so the Full Game is simply open, as on the web. Quiet: no change event.
+   */
+  markSideloaded(): void {
+    this.sideloaded = true;
+    this.dev = null;
+  }
+
+  get isSideloaded(): boolean {
+    return this.sideloaded;
   }
 
   /** Everything is open: a build without billing, a purchase, or (debug builds) the dev switch. */
@@ -175,6 +191,17 @@ let current: FullGame | null = null;
 /** The install's entitlement (made on first use). */
 export function fullGame(): FullGame {
   return (current ??= new FullGame(runtimeKind()));
+}
+
+/** Installers that are Google Play (the only ones that can bill); same list the update check uses. */
+const PLAY = new Set(['com.android.vending', 'com.google.android.feedback']);
+
+/**
+ * A copy Android says was installed by something other than Google Play (a browser download, a file
+ * manager, adb). Unknown answers count as Play, so a Play install never loses its lock by accident.
+ */
+export function isSideloadInstall(src: { known: boolean; installer?: string | null }): boolean {
+  return src.known && !PLAY.has(src.installer ?? '');
 }
 
 /** Tests: use this entitlement instead (null: back to the real one). */

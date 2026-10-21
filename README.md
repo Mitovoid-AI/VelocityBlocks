@@ -252,6 +252,11 @@ way. The web, portal and `npm run dev` builds and iOS never check.
 The Android app is free to play, with one optional, one-time purchase through Google Play: the
 **Full Game** (a non-consumable "managed product" with the id `full_game`).
 
+Only copies installed **from Google Play** sell it. An APK installed any other way (the GitHub release
+APKs, a file shared over chat, adb) has everything unlocked, like the web build: Google only bills Play
+installs, and the code is MIT anyway. The app asks Android who installed it (`isSideloadInstall` in
+`src/app/fullGame.ts`); when Android won't say, it behaves like a Play install.
+
 | Free | Full Game |
 | --- | --- |
 | The whole Stadium campaign (A01-A12) | The other Desert and Water tracks (D02-D06, W02-W06) |
