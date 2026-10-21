@@ -5,10 +5,15 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { SkyKind, Theme } from '../track/track';
 import type { QualityProfile } from './quality';
+import { cactusGeometry, frameGeometry, mesaGeometry, palmGeometry, pierGeometry, rockGeometry, scatter } from './scenery';
 import { adBoardTexture, crowdTexture } from './stadiumTextures';
 import { grassTexture, haloTexture } from './textures';
+import { sandTexture } from './themeTextures';
+import { themeLook, type ThemeLook } from './themes';
 import { disposeMaterial, seeded } from './texUtil';
+import { waterMaterial } from './water';
 
 export interface Extents {
   x0: number;
@@ -81,7 +86,7 @@ type Part = 'wall' | 'ads' | 'stand' | 'crowd' | 'roof' | 'lamp';
  * One side of the stadium in its own frame: x along the side, +z towards the track, origin on the
  * extents edge at the middle of the side. Adds geometry per material and returns the lamp halos.
  */
-function buildSide(len: number, rows: number, add: (part: Part, g: THREE.BufferGeometry) => void): V[] {
+function buildSide(len: number, rows: number, add: (part: Part, g: THREE.BufferGeometry) => void, stands = true): V[] {
   const h = len / 2;
   const q: Record<Part, Quads> = {
     wall: new Quads(),
@@ -96,6 +101,11 @@ function buildSide(len: number, rows: number, add: (part: Part, g: THREE.BufferG
   // Perimeter wall (it overlaps the next side's wall in the corner) and its LED boards.
   q.wall.box(-h - 0.5, h + 0.5, 0, PERIM_H, -0.5, 0.5);
   q.ads.quad([-h, 0.45, 0.52], [h, 0.45, 0.52], [h, 2.45, 0.52], [-h, 2.45, 0.52], -h / 16, 0, h / 16, 1);
+  // The Desert and Water arenas are open: the wall and its boards only.
+  if (!stands) {
+    for (const part of Object.keys(q) as Part[]) if (q[part].idx.length) add(part, q[part].build());
+    return [];
+  }
 
   // Stepped grandstand: fascia, then per row a tread, a riser of spectators and the end caps.
   q.stand.quad([-h, 0, STAND_Z], [h, 0, STAND_Z], [h, STAND_Y, STAND_Z], [-h, STAND_Y, STAND_Z]);
@@ -206,7 +216,13 @@ function fieldGeometry(b: Extents): THREE.BufferGeometry {
 }
 
 /** Ring of hills on the horizon, rising towards its outer edge; vertex-coloured green to blue-grey. */
-export function terrainGeometry(b: Extents, seed = 13): THREE.BufferGeometry {
+export function terrainGeometry(
+  b: Extents,
+  seed = 13,
+  low: THREE.Color = new THREE.Color('#5d8a4a'),
+  high: THREE.Color = new THREE.Color('#8794a3'),
+  hillH = HILL_H,
+): THREE.BufferGeometry {
   const cx = (b.x0 + b.x1) / 2;
   const cz = (b.z0 + b.z1) / 2;
   const r1 = TERRAIN_FAR;
@@ -223,8 +239,6 @@ export function terrainGeometry(b: Extents, seed = 13): THREE.BufferGeometry {
     const t = s * s * (3 - 2 * s);
     return l[i % l.length] + (l[(i + 1) % l.length] - l[i % l.length]) * t;
   };
-  const low = new THREE.Color('#5d8a4a');
-  const high = new THREE.Color('#8794a3');
   const c = new THREE.Color();
   const pos: number[] = [];
   const col: number[] = [];
@@ -236,9 +250,9 @@ export function terrainGeometry(b: Extents, seed = 13): THREE.BufferGeometry {
     for (let i = 0; i <= SEG; i++) {
       const a = (i / SEG) * Math.PI * 2;
       const n = 0.25 + 0.55 * wave(a, l1) + 0.2 * wave(a, l2);
-      const y = n * HILL_H * rise;
+      const y = n * hillH * rise;
       pos.push(cx + Math.cos(a) * r, y - 0.5, cz + Math.sin(a) * r);
-      c.copy(low).lerp(high, Math.min(1, y / (HILL_H * 0.85)));
+      c.copy(low).lerp(high, Math.min(1, y / (hillH * 0.85)));
       col.push(c.r, c.g, c.b);
     }
   }
@@ -312,7 +326,12 @@ function buildTrees(b: Extents, count: number, mat: THREE.Material): THREE.Insta
   return mesh;
 }
 
-export function buildStadium(b: Extents, p: QualityProfile): Stadium {
+/**
+ * The surroundings of a track: the stadium (lawn, stands, roofs, floodlights, trees, hills) or, for the
+ * Desert and Water themes and any sunset, an open arena or a stadium in the theme's colours (themedSurroundings).
+ */
+export function buildStadium(b: Extents, p: QualityProfile, theme: Theme = 'stadium', sky: SkyKind = 'day'): Stadium {
+  if (theme !== 'stadium' || sky !== 'day') return themedSurroundings(b, p, theme, themeLook(theme, sky));
   const group = new THREE.Group();
   const cx = (b.x0 + b.x1) / 2;
   const cz = (b.z0 + b.z1) / 2;
@@ -381,6 +400,166 @@ export function buildStadium(b: Extents, p: QualityProfile): Stadium {
   group.add(hills);
   if (p.trees > 0) {
     const trees = buildTrees(b, p.trees, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    trees.name = 'trees';
+    group.add(trees);
+  }
+  if (p.halos && halos.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(halos, 3));
+    const pts = new THREE.Points(
+      g,
+      new THREE.PointsMaterial({
+        map: haloTexture(),
+        color: new THREE.Color(1, 0.93, 0.78),
+        size: 34,
+        sizeAttenuation: true,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+        fog: false,
+      }),
+    );
+    pts.name = 'halos';
+    group.add(pts);
+  }
+
+  return {
+    group,
+    dispose() {
+      group.traverse((o) => {
+        if (o instanceof THREE.InstancedMesh) o.dispose();
+        if (o instanceof THREE.Mesh || o instanceof THREE.Points) {
+          o.geometry.dispose();
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach((mm: THREE.Material) => disposeMaterial(mm));
+        }
+      });
+    },
+  };
+}
+
+/** Lit material for the surroundings: Standard, or Lambert on the cheap tier (only the keys Lambert shares). */
+function litMaterial(p: QualityProfile, params: THREE.MeshStandardMaterialParameters): THREE.Material {
+  if (!p.cheapGround) return new THREE.MeshStandardMaterial(params);
+  const m = new THREE.MeshLambertMaterial();
+  if (params.color !== undefined) m.color.set(params.color);
+  m.map = params.map ?? null;
+  m.vertexColors = params.vertexColors ?? false;
+  return m;
+}
+
+/** Beach width (m) outside the Water arena's wall; the sea starts there. */
+export const BEACH = 230;
+
+/**
+ * Desert and Water surroundings (and the Stadium at sunset): the perimeter wall with its LED boards (stands,
+ * roofs and floodlights only for the Stadium), the floor inside (sand or lawn), the field outside, hills on the
+ * horizon, and the theme's scenery: cacti, rocks and mesas in the desert; a beach, palms, rocks, wooden piers
+ * and the sea on the coast. About ten draw calls, the tier's tree budget shared out between the props.
+ */
+function themedSurroundings(b: Extents, p: QualityProfile, theme: Theme, look: ThemeLook): Stadium {
+  const group = new THREE.Group();
+  const cx = (b.x0 + b.x1) / 2;
+  const cz = (b.z0 + b.z1) / 2;
+  const w = b.x1 - b.x0;
+  const d = b.z1 - b.z0;
+  const stands = theme === 'stadium';
+  const mats: Record<Part, THREE.Material> = {
+    wall: litMaterial(p, { color: look.wall, roughness: 0.85 }),
+    ads: new THREE.MeshBasicMaterial({ map: adBoardTexture(), color: 0xdddddd }),
+    stand: litMaterial(p, { color: 0x8b929c, roughness: 0.9 }),
+    crowd: litMaterial(p, { map: crowdTexture(), roughness: 0.9 }),
+    roof: litMaterial(p, { color: 0xe8ebef, roughness: 0.45, metalness: 0.2 }),
+    lamp: new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 2.5, 2.2) }),
+  };
+  const parts: Record<Part, THREE.BufferGeometry[]> = { wall: [], ads: [], stand: [], crowd: [], roof: [], lamp: [] };
+  const halos: number[] = [];
+  const sides: [number, number, number, number][] = [
+    [cx, b.z0, w, 0],
+    [cx, b.z1, w, Math.PI],
+    [b.x0, cz, d, Math.PI / 2],
+    [b.x1, cz, d, -Math.PI / 2],
+  ];
+  const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  for (const [px, pz, len, rot] of sides) {
+    m.makeRotationY(rot).setPosition(px, 0, pz);
+    const lamps = buildSide(len, p.standRows, (part, g) => parts[part].push(g.applyMatrix4(m)), stands);
+    for (const l of lamps) {
+      v.set(l[0], l[1], l[2]).applyMatrix4(m);
+      halos.push(v.x, v.y, v.z);
+    }
+  }
+  for (const part of Object.keys(parts) as Part[]) {
+    const geos = parts[part];
+    // An open arena has no stands, roofs or lamps.
+    const merged = geos.length ? mergeGeometries(geos) : null;
+    geos.forEach((g) => g.dispose());
+    if (merged) {
+      const mesh = new THREE.Mesh(merged, mats[part]);
+      mesh.name = 'stadium-' + part;
+      group.add(mesh);
+    } else disposeMaterial(mats[part]);
+  }
+
+  const desert = theme === 'desert';
+  const floor = new THREE.Mesh(
+    lawnGeometry(b),
+    litMaterial(p, { map: desert ? sandTexture() : grassTexture(), vertexColors: true, roughness: 1 }),
+  );
+  floor.name = 'lawn';
+  floor.receiveShadow = true;
+  group.add(floor);
+  const beach = theme === 'water' ? BEACH : 0;
+  if (beach) {
+    // Sand from the wall to the water's edge, then the sea out past the horizon fog.
+    const sand = new THREE.Mesh(frameGeometry(b, 0, beach, 0), new THREE.MeshLambertMaterial({ color: look.field }));
+    sand.name = 'field';
+    group.add(sand);
+    const sea = new THREE.Mesh(frameGeometry(b, beach - 1, FIELD, -0.4), waterMaterial(look, { cheap: p.cheapGround, scale: 60 }));
+    sea.name = 'sea';
+    group.add(sea);
+  } else {
+    const field = new THREE.Mesh(fieldGeometry(b), new THREE.MeshLambertMaterial({ color: look.field }));
+    field.name = 'field';
+    group.add(field);
+  }
+  const hills = new THREE.Mesh(
+    terrainGeometry(b, theme === 'water' ? 29 : 17, look.hillLow, look.hillHigh, look.hillHeight),
+    new THREE.MeshLambertMaterial({ vertexColors: true }),
+  );
+  hills.name = 'terrain';
+  group.add(hills);
+
+  const flat = () => new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const budget = p.trees;
+  if (desert) {
+    if (budget > 0) {
+      const cacti = scatter(cactusGeometry(), flat(), b, Math.round(budget * 0.45), TREE_NEAR - 30, TREE_FAR, 101, [0.8, 1.5]);
+      cacti.name = 'trees';
+      group.add(cacti);
+    }
+    const rocks = scatter(rockGeometry(), flat(), b, Math.max(12, Math.round(budget * 0.35)), 20, TREE_FAR + 120, 103, [0.8, 3.5], new THREE.Color(0xa86a44));
+    rocks.name = 'rocks';
+    group.add(rocks);
+    const r0 = Math.max(w, d) / 2 + 420;
+    const mesas = new THREE.Mesh(mesaGeometry(b, p.cheapGround ? 8 : 14, r0, r0 + 900), flat());
+    mesas.name = 'mesas';
+    group.add(mesas);
+  } else if (theme === 'water') {
+    if (budget > 0) {
+      const palms = scatter(palmGeometry(), flat(), b, Math.round(budget * 0.4), 25, beach - 40, 107, [0.85, 1.35]);
+      palms.name = 'trees';
+      group.add(palms);
+    }
+    const rocks = scatter(rockGeometry(), flat(), b, Math.max(10, Math.round(budget * 0.15)), beach - 70, beach + 10, 109, [1, 4], new THREE.Color(0x8a8f94));
+    rocks.name = 'rocks';
+    group.add(rocks);
+    const piers = new THREE.Mesh(pierGeometry(b, beach, 4), flat());
+    piers.name = 'piers';
+    group.add(piers);
+  } else if (budget > 0) {
+    const trees = buildTrees(b, budget, flat());
     trees.name = 'trees';
     group.add(trees);
   }

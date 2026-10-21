@@ -664,10 +664,58 @@ export class Store {
   }
 }
 
+// ---- Full Game (the Google Play in-app purchase, app/fullGame.ts). Kept apart from progress: Settings >
+// Reset records & ghosts never touches it. A local copy so the unlock works offline; the store re-checks
+// it on every start where Google Play answers (platform/purchases.ts).
+
+/** What the store last said about the Full Game on this install. */
+export interface FullGameRecord {
+  owned: boolean;
+  /** When Google Play last confirmed it (ms since 1970), 0 if never. */
+  checked: number;
+}
+
+/** Debug Android builds only: Settings' hidden dev switch overrides the store ('owned', 'free'), or null. */
+export type DevFullGame = 'owned' | 'free' | null;
+
+const FULL_GAME_KEY = 'fullgame';
+const DEV_FULL_GAME_KEY = 'fullgame.dev';
+
+/** The stored Full Game state; anything unreadable counts as not owned. */
+export function loadFullGame(): FullGameRecord {
+  const o = asObject(read<unknown>(FULL_GAME_KEY, null));
+  return {
+    owned: o.owned === true,
+    checked: typeof o.checked === 'number' && Number.isFinite(o.checked) ? o.checked : 0,
+  };
+}
+
+/** False when it could not be stored (it then lasts until the game closes; the store re-checks next start). */
+export function saveFullGame(r: FullGameRecord): boolean {
+  return write(FULL_GAME_KEY, { owned: r.owned === true, checked: r.checked });
+}
+
+export function loadDevFullGame(): DevFullGame {
+  const v = read<unknown>(DEV_FULL_GAME_KEY, null);
+  return v === 'owned' || v === 'free' ? v : null;
+}
+
+export function saveDevFullGame(v: DevFullGame): void {
+  if (v === null) {
+    try {
+      localStorage.removeItem(PREFIX + DEV_FULL_GAME_KEY);
+    } catch {
+      /* unavailable */
+    }
+  } else write(DEV_FULL_GAME_KEY, v);
+}
+
 /** Stable identity for a block layout (records and ghosts follow the layout, not the name). */
 export function layoutHash(data: TrackData): string {
   let h = 2166136261;
-  const s = data.blocks.map((b) => `${b.type}${b.i},${b.j},${b.k},${b.dir}`).join(';');
+  // The Desert's sand beside the road drives differently from grass, so it is part of the layout's key (the
+  // other themes and the sky are looks only, and a track without a theme keeps the key it always had).
+  const s = data.blocks.map((b) => `${b.type}${b.i},${b.j},${b.k},${b.dir}`).join(';') + (data.theme === 'desert' ? '|desert' : '');
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
     h = Math.imul(h, 16777619);

@@ -25,6 +25,8 @@ async function boot(): Promise<App | null> {
     await Promise.race([app.world.ready, new Promise((r) => setTimeout(r, 8000))]);
     hideBoot();
     ads.loadingFinished();
+    // Sideloaded Android installs: look for a newer GitHub release once the menu is up (platform/updates.ts).
+    app.checkUpdatesSoon();
     return app;
   } catch (e) {
     // three.js needs WebGL 2. Without it the page would stay blank, so say why.

@@ -32,6 +32,8 @@ export interface ScoreInput {
   note: string;
   respawns: number;
   hasNext: boolean;
+  /** The next track needs the Full Game: the button says so and opens the Full Game screen. */
+  nextLocked?: boolean;
   fromEditor: boolean;
 }
 
@@ -255,7 +257,7 @@ export function scoreCardHtml(sm: ScoreModel, animate: boolean): string {
       <div class="row sc-actions">
         <button class="btn primary center" data-act="retry">Retry</button>
         <button class="btn center" data-act="replay">Watch replay</button>
-        ${i.hasNext ? '<button class="btn center" data-act="next">Next track</button>' : ''}
+        ${i.hasNext ? `<button class="btn center" data-act="next">${i.nextLocked ? '&#128274; Next track' : 'Next track'}</button>` : ''}
         <button class="btn center" data-act="menu">${i.fromEditor ? 'Editor' : 'Menu'}</button>
       </div>
       <div class="sr-only" aria-live="polite"></div>

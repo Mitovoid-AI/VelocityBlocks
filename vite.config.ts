@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs';
 import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 /** Browser builds with an ad network (VITE_ADS comes from .env.<mode>), each in its own folder. */
 const AD_MODES = ['crazygames', 'poki', 'adtest'];
+
+/** package.json "version" is the one place the app version is set (android/app/build.gradle reads it too). */
+const APP_VERSION = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 export default defineConfig(({ mode }) => {
   const ads = loadEnv(mode, '.', 'VITE_').VITE_ADS ?? '';
@@ -11,7 +15,10 @@ export default defineConfig(({ mode }) => {
     // iframe, and from the Capacitor WebView on Android/iOS.
     base: './',
     // A literal, so the bundler drops the adapters of the other networks (src/ads/adsUi.ts).
-    define: { __VB_ADS__: JSON.stringify(AD_MODES.includes(ads) ? ads : 'none') },
+    define: {
+      __VB_ADS__: JSON.stringify(AD_MODES.includes(ads) ? ads : 'none'),
+      __APP_VERSION__: JSON.stringify(APP_VERSION),
+    },
     // KTX2Loader finds the Basis transcoder next to itself (new URL(..., import.meta.url)): served from
     // node_modules in dev, not from the pre-bundled deps folder where it does not exist. The build emits it.
     optimizeDeps: { exclude: ['three/examples/jsm/loaders/KTX2Loader.js'] },

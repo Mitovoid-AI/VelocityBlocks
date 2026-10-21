@@ -26,7 +26,11 @@ describe.each(TRACKS)('$id visuals', ({ track }) => {
   const named = (n: string) => ms.find((m) => m.name === n);
 
   it('stays within the draw-call budget (gates merged per material)', () => {
-    expect(ms.length).toBeLessThanOrEqual(16);
+    // Drawn meshes: the splash effect over water stays hidden until a car falls in. Splash zones (shallow water
+    // over the road, see-through) cost one draw call of their own.
+    const drawn = ms.filter((m) => m.visible);
+    expect(drawn.length).toBeLessThanOrEqual(16 + (named('splash') ? 1 : 0));
+    expect(ms.filter((m) => m.name === 'water').length).toBeLessThanOrEqual(1);
     expect(ms.filter((m) => m.name.startsWith('gate-')).length).toBeLessThanOrEqual(7);
   });
 
@@ -51,7 +55,8 @@ describe.each(TRACKS)('$id visuals', ({ track }) => {
   });
 
   it('draws the deck as four columns per row and kerbs on both sides', () => {
-    const rows = track.blocks.reduce((n, b) => n + samplesFor(b), 0);
+    // Water cells are lakes, not road (waterGeometry).
+    const rows = track.blocks.reduce((n, b) => n + (b.def.water ? 0 : samplesFor(b)), 0);
     expect(named('deck')!.geometry.attributes.position.count).toBe(rows * 4);
     expect(named('kerb')!.geometry.attributes.position.count).toBe(rows * 5 * 2);
   });

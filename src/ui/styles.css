@@ -1400,6 +1400,14 @@ kbd {
   font-size: 13px;
   padding: 7px 9px;
 }
+/* The Theme picker heads the palette: the toolbars are full on a phone in landscape. */
+.ed-palette .ed-theme {
+  font-size: 13px;
+  padding: 7px 4px;
+  min-width: 0;
+  width: 100%;
+  flex-shrink: 0;
+}
 .ed-palette .btn.sel {
   border-color: var(--accent);
   background: rgba(255, 106, 61, 0.25);
@@ -1991,5 +1999,206 @@ kbd {
   .t-nitro,
   .hud-nitro .n-ring {
     animation: none !important;
+  }
+}
+
+/* ---- Full Game (app/fullGame.ts): lock badges, the Get Full Game buttons and the store screen ---- */
+.lock {
+  margin-right: 4px;
+  font-size: 0.85em;
+  filter: grayscale(0.2);
+}
+.btn.locked,
+.look-opt.locked,
+.body-opt.locked {
+  opacity: 0.7;
+}
+/* A premium track: dimmed like a locked one, but the badge stays readable and the card opens the store. */
+.card.premium {
+  cursor: pointer;
+  opacity: 0.8;
+}
+.fg-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 207, 63, 0.7);
+  color: var(--gold);
+  font-weight: 800;
+  font-size: 12px;
+}
+.btn.fg-cta {
+  border-color: rgba(255, 207, 63, 0.7);
+  color: var(--gold);
+}
+.fg-owned {
+  color: #6fe39a;
+  font-weight: 700;
+  margin-right: 8px;
+}
+/* Campaign: Stadium / Desert / Water next to the Car / Bike / Truck switch. */
+.header .set-seg .btn {
+  flex: 0 0 auto;
+}
+.fullgame .fg-panel {
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+.fg-list {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.fg-list li {
+  margin: 4px 0;
+}
+.fg-free,
+.fg-note {
+  margin: 6px 0;
+  font-size: 13px;
+}
+.fg-actions {
+  margin-top: 10px;
+}
+.fg-status {
+  min-height: 1.2em;
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--accent-2);
+}
+.fg-status:empty {
+  display: none;
+}
+.fg-status.warn {
+  color: var(--gold);
+}
+.fg-thanks {
+  font-weight: 800;
+  font-size: 18px;
+  margin-bottom: 8px;
+  color: #6fe39a;
+}
+.fg-thanks.big {
+  font-size: 24px;
+}
+/* Settings: the version line (debug builds: tap it 7 times for the Full Game dev switch). */
+.s-version {
+  margin-top: 10px;
+  text-align: center;
+}
+.s-ver {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.s-dev {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.s-dev .btn {
+  white-space: nowrap;
+}
+@media (max-height: 520px) {
+  .fg-list li {
+    margin: 1px 0;
+    font-size: 14px;
+  }
+  .fg-free,
+  .fg-note {
+    margin: 3px 0;
+    font-size: 12px;
+  }
+  .fg-actions {
+    margin-top: 6px;
+  }
+  .fg-status {
+    margin-top: 4px;
+    font-size: 13px;
+  }
+  .fg-thanks {
+    font-size: 16px;
+  }
+  .fg-thanks.big {
+    font-size: 19px;
+  }
+}
+
+/* ---------- Pop-up over a screen (the update offer: app/updateUi.ts) ---------- */
+.popup {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(12px + var(--safe-t)) calc(16px + var(--safe-r)) calc(12px + var(--safe-b)) calc(16px + var(--safe-l));
+  animation: fade 0.2s ease-out;
+}
+.popup.dim {
+  background: rgba(6, 10, 24, 0.72);
+}
+.upd-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(540px, 100%);
+  max-height: 100%;
+  box-sizing: border-box;
+  background: var(--panel-solid);
+}
+.upd-title {
+  margin: 0;
+  font-style: italic;
+  font-weight: 900;
+  font-size: 24px;
+}
+.upd-sub,
+.upd-hint {
+  font-size: 13px;
+}
+/* Untrusted plain text (escaped); line breaks kept, long words wrap, and it scrolls rather than grow. */
+.upd-notes {
+  flex: 0 1 auto;
+  min-height: 2.6em;
+  overflow-y: auto;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.4;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.upd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.upd-actions .btn {
+  white-space: nowrap;
+}
+@media (max-height: 420px) {
+  .upd-panel {
+    padding: 12px 14px;
+    gap: 6px;
+  }
+  .upd-title {
+    font-size: 19px;
+  }
+  .upd-sub,
+  .upd-hint {
+    font-size: 12px;
+  }
+  .upd-notes {
+    font-size: 13px;
+    padding: 6px 8px;
   }
 }

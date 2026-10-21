@@ -264,6 +264,12 @@ export class GameAudio {
     this.burst(160, 0.25, Math.min(0.5, speed / 40));
   }
 
+  /** A fall into water: a hiss of spray falling away over a low plunge (the respawn follows in 0.3 s). */
+  splash(): void {
+    this.burst(2400, 0.6, 0.4, 300);
+    this.tone(85, 0.32, 'sine', 0.28);
+  }
+
   click(): void {
     this.tone(880, 0.05, 'square', 0.06);
   }

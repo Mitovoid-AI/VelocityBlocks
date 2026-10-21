@@ -25,6 +25,15 @@ export const MAX_LEVEL = 7;
 /** Stadium padding around the track footprint, in metres. */
 export const STADIUM_PAD = 3 * CELL;
 
+/**
+ * Water (the Water set's lakes and rivers, track.ts): a water cell has no ground. Its bed lies WATER_BED below
+ * the floor, the surface is drawn WATER_SURFACE_Y above it (flush with the lawn, so no hole is cut in it), and
+ * a car whose centre sinks below WATER_SINK_Y over water has fallen in (race.ts: an automatic respawn).
+ */
+export const WATER_BED = -4;
+export const WATER_SURFACE_Y = 0.04;
+export const WATER_SINK_Y = -0.35;
+
 /** Fixed simulation rate. Physics always advances in steps of DT. */
 export const TICK_HZ = 100;
 export const DT = 1 / TICK_HZ;

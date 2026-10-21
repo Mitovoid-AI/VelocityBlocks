@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { PHYSICS_VERSION, VEHICLE_REV } from '../src/core/constants';
 import { entryKey, VEHICLE_CLASSES, type VehicleClass } from '../src/core/vehicles';
 import { classAuthorTimes, type AuthorTable } from '../src/game/medals';
@@ -9,6 +9,7 @@ import {
   LAT_USE,
   lateralLimits,
   lineJob,
+  loadStoredLines,
   LINE_STEP,
   minCurvatureOffsets,
   offsetRoute,
@@ -30,6 +31,9 @@ import { CAMPAIGN_DEFS } from '../src/track/campaign';
 import racingLines from '../src/track/racingLines.json';
 import { nearestPoint, traceRoute, type Route } from '../src/track/route';
 import { Track } from '../src/track/track';
+
+// The precomputed lines load on first use (the game's bundle leaves them out): campaign line jobs need them.
+beforeAll(() => loadStoredLines());
 
 const author = authorTimes_ as { physics: number; times: Record<string, number> };
 const stored = racingLines as StoredLines;

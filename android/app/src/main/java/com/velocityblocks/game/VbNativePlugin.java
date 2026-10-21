@@ -3,6 +3,8 @@ package com.velocityblocks.game;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.InstallSourceInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.graphics.Rect;
 import android.net.Uri;
@@ -246,6 +248,66 @@ public class VbNativePlugin extends Plugin {
         o.put("model", Build.MODEL);
         o.put("nav", navMode());
         call.resolve(o);
+    }
+
+    /**
+     * The package that installed this app: "com.android.vending" for Google Play, a package installer
+     * or file manager (or nothing) for an APK installed by hand. {known: false} when Android would not
+     * say. The update check (src/platform/updates.ts) only runs for installs that are not from Play.
+     */
+    @PluginMethod
+    public void installSource(PluginCall call) {
+        JSObject o = new JSObject();
+        try {
+            String installer = installerPackage();
+            o.put("known", true);
+            if (installer != null) o.put("installer", installer);
+        } catch (Throwable e) {
+            // Unknown: the game then treats the install as if it came from Play (no update check).
+            Log.w(MainActivity.TAG, "install source unknown", e);
+            o.put("known", false);
+        }
+        call.resolve(o);
+    }
+
+    @SuppressWarnings("deprecation")
+    private String installerPackage() throws PackageManager.NameNotFoundException {
+        PackageManager pm = getContext().getPackageManager();
+        String pkg = getContext().getPackageName();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            InstallSourceInfo info = pm.getInstallSourceInfo(pkg);
+            return info.getInstallingPackageName();
+        }
+        return pm.getInstallerPackageName(pkg);
+    }
+
+    /**
+     * Open an https address in the system browser (or the app that handles it), outside the game. Used
+     * for an update's APK download: the browser downloads it and Android offers to install it.
+     * Resolves {opened: false} when no app can open it.
+     */
+    @PluginMethod
+    public void openUrl(PluginCall call) {
+        String url = call.getString("url");
+        Uri uri = url != null ? Uri.parse(url) : null;
+        if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())) {
+            call.reject("Not an https address");
+            return;
+        }
+        JSObject ret = new JSObject();
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            ret.put("opened", true);
+        } catch (ActivityNotFoundException e) {
+            ret.put("opened", false);
+        } catch (Exception e) {
+            call.reject("Could not open the address: " + e.getMessage(), e);
+            return;
+        }
+        call.resolve(ret);
     }
 
     /** 'gesture', '3-button', '2-button' or 'unknown'. Diagnostics only: OEM skins may misreport. */

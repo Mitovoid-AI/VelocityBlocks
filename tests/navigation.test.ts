@@ -301,7 +301,7 @@ describe('App.profileChanged', () => {
     const setMode = vi.fn();
     const preloadModel = vi.fn();
     const requestWarm = vi.fn();
-    const app = { mode: m, store: { profile: { vehicle: 'bike', carColor: '#ffffff' } }, setMode, preloadModel, world: { requestWarm } };
+    const app = { mode: m, store: { profile: { vehicle: 'bike', carColor: '#ffffff' } }, setMode, preloadModel, world: { requestWarm }, effectiveVehicle: () => 'bike' };
     App.prototype.profileChanged.call(app as unknown as App, 'vehicle');
     expect(setVehicle).toHaveBeenCalledWith('bike');
     expect(refreshCar).not.toHaveBeenCalled();

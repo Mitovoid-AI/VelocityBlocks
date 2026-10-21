@@ -2,6 +2,7 @@
 // close garage orbit for the profile editor. Distances follow the vehicle class (CameraRig.vehicle).
 
 import * as THREE from 'three';
+import { WATER_SURFACE_Y } from '../core/constants';
 import type { Quat, V3 } from '../core/vec';
 import type { VehicleClass } from '../core/vehicles';
 import { vehicleSpec } from '../physics/vehicle';
@@ -181,7 +182,9 @@ export class CameraRig {
       const e = this.ext, m = 1.5;
       want.x = Math.min(e.x1 - m, Math.max(e.x0 + m, want.x));
       want.z = Math.min(e.z1 - m, Math.max(e.z0 + m, want.z));
-      const g = track.surfaceAt(want.x, want.y, want.z, 0.5).y;
+      // Over water the floor is the surface, not the bed below it: the camera stays out of the lake.
+      const hit = track.surfaceAt(want.x, want.y, want.z, 0.5);
+      const g = hit.surf === 'water' ? WATER_SURFACE_Y : hit.y;
       if (want.y < g + 1.2) want.y = g + 1.2;
       // On the grass beside a slope rising from the floor, the spot behind the car can be inside the
       // solid embankment, where its faces are culled; lift the camera over the top instead.

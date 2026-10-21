@@ -20,7 +20,9 @@ export type BlockType =
   | 'bigCurveL'
   | 'slopeUp'
   | 'slopeDown'
-  | 'ramp';
+  | 'ramp'
+  | 'splash'
+  | 'water';
 
 export type GateKind = 'start' | 'checkpoint' | 'finish';
 export type PadKind = 'boost' | 'turbo';
@@ -43,6 +45,13 @@ export interface BlockDef {
   next: { lat: number; fwd: number; dk: number };
   gate?: GateKind;
   pad?: PadKind;
+  /** Shallow water across a straight road (a splash zone): drivable, but it drags the car back (physics). */
+  splash?: boolean;
+  /**
+   * No road at all: a cell of water at the floor (lakes, rivers, the pool under a jump or a bridge). A car
+   * that drops into it is respawned (race.ts). Water blocks never join the route and have no surface.
+   */
+  water?: boolean;
   /** Height profile along the centre line. */
   height: (s: number) => number;
   /** dh/ds along the centre line. */
@@ -156,6 +165,8 @@ export const BLOCKS: Record<BlockType, BlockDef> = {
       return (2 * RAMP_H * t) / (CELL - RAMP_START);
     },
   }),
+  splash: lineBlock('splash', 'Splash zone', 'W', { splash: true }),
+  water: lineBlock('water', 'Water', '~', { water: true }),
 };
 
 export const BLOCK_LIST: BlockDef[] = Object.values(BLOCKS);

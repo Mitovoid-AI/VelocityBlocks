@@ -39,6 +39,8 @@ export interface VehicleModel {
    */
   readonly tintable: boolean;
   readonly credit: AssetCredit;
+  /** Needs the Full Game (app/fullGame.ts); a locked model falls back to the Classic look. */
+  readonly premium: boolean;
 }
 
 const CC_BY = 'http://creativecommons.org/licenses/by/4.0/';
@@ -70,6 +72,7 @@ export const VEHICLE_MODELS: readonly VehicleModel[] = [
     ],
     tintable: true,
     credit: CAR_PACK,
+    premium: true,
   },
   {
     id: 'coupe',
@@ -84,6 +87,7 @@ export const VEHICLE_MODELS: readonly VehicleModel[] = [
     ],
     tintable: true,
     credit: CAR_PACK,
+    premium: true,
   },
   {
     id: 'sedan',
@@ -98,6 +102,7 @@ export const VEHICLE_MODELS: readonly VehicleModel[] = [
     ],
     tintable: true,
     credit: CAR_PACK,
+    premium: true,
   },
   {
     id: 'cafe',
@@ -111,6 +116,7 @@ export const VEHICLE_MODELS: readonly VehicleModel[] = [
       [51, 18, 5.5],
     ],
     tintable: false,
+    premium: true,
     credit: {
       title: 'Cafe Racer',
       author: 'Milin Andrei',
@@ -136,6 +142,7 @@ export const VEHICLE_MODELS: readonly VehicleModel[] = [
       [52, 19, 4],
     ],
     tintable: true,
+    premium: true,
     credit: {
       title: "LCT 3000 '95 - Low poly model",
       author: 'Daniel Zhabotinsky',

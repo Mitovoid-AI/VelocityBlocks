@@ -1,10 +1,13 @@
-// Prints an ASCII map of a track code: node <tmp>/layout.mjs "<code>"
+// Prints an ASCII map of a track code or a campaign id: node <tmp>/layout.mjs "<code>" | D03
 // (<tmp>/layout.mjs is this file bundled with the local esbuild; see Helper scripts in README.md)
+// Each cell shows the first letter of its block code and its level ("~0" is water).
 import { buildTrack } from '../src/track/builder';
+import { CAMPAIGN_DEFS } from '../src/track/campaign';
 import { cellsFor } from '../src/track/track';
 import { BLOCKS } from '../src/track/blocks';
 
-const code = process.argv[2];
+const arg = process.argv[2];
+const code = CAMPAIGN_DEFS.find((d) => d[0] === arg)?.[3] ?? arg;
 try {
   const t = buildTrack('layout', code);
   const grid = new Map<string, string>();

@@ -33,7 +33,7 @@ export function traceRoute(track: Track): Route {
   const order: PlacedBlock[] = [];
   const points: RoutePoint[] = [];
   const byAnchor = new Map<string, PlacedBlock>();
-  for (const b of track.blocks) byAnchor.set(`${b.p.i},${b.p.j},${b.p.k},${b.p.dir}`, b);
+  for (const b of track.blocks) if (!b.def.water) byAnchor.set(`${b.p.i},${b.p.j},${b.p.k},${b.p.dir}`, b);
 
   let cur = track.start;
   let s = 0;

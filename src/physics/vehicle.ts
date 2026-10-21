@@ -446,6 +446,8 @@ const TC_DRIFT = 1.0;
 const SPIN_RANGE = 0.6;
 /** Grass digs in for drive (cornering grip there is still the surface grip), so a car can drive off it. */
 const GRASS_TRACTION = 0.75;
+/** Sand digs in less: the wheels churn (the Desert set's off-road surface). */
+const SAND_TRACTION = 0.62;
 /** Rolling resistance plus engine braking when coasting (m/s^2 at rest, growth per m/s). */
 const COAST = 0.5;
 const COAST_V = 0.012;
@@ -548,6 +550,20 @@ export function gripAccel(v: number, S: VehicleSpec): number {
 const GRASS_ROLL = 3;
 const GRASS_DRAG = 0.0127;
 const GRASS_MAX_DECEL = 30;
+/**
+ * Sand (the Desert set) drags harder than grass at every speed: the car tops out near 80 km/h on it (grass
+ * 96). Same shape as the grass drag, so a run that never touches sand is the grass physics bit for bit.
+ */
+export const SAND_ROLL = 4.2;
+export const SAND_DRAG = 0.0165;
+const SAND_MAX_DECEL = 32;
+/**
+ * A splash zone's shallow water: a body drag on the road (m/s^2 at rest, and per (m/s)^2, capped) scaled by
+ * the wheels in it, about 30 km/h off a 250 km/h car over the block, with a little less grip (track.ts).
+ */
+export const SPLASH_ROLL = 2.5;
+export const SPLASH_DRAG = 0.0024;
+const SPLASH_MAX_DECEL = 14;
 
 export const BOOST = { boost: { time: 1.0, power: 16 }, turbo: { time: 1.6, power: 26 } } as const;
 
@@ -820,6 +836,9 @@ export function stepCar(c: CarState, ctl: Controls, track: Track, assists: Reado
 
   let grounded = 0;
   let grassWheels = 0;
+  /** Of the grassWheels, those on desert sand; and wheels in a splash zone (on the road). */
+  let sandWheels = 0;
+  let splashWheels = 0;
   let slipSum = 0;
   let tcCut = 0;
   let spin = 0;
@@ -860,6 +879,8 @@ export function stepCar(c: CarState, ctl: Controls, track: Track, assists: Reado
     c.contact[w] = true;
     grounded++;
     if (!hit.road) grassWheels++;
+    if (hit.surf === 'sand') sandWheels++;
+    else if (hit.surf === 'splash') splashWheels++;
 
     let fs = K_SPRING * comp + C_DAMP * compVel;
     if (comp > REST) fs += K_BUMP * (comp - REST);
@@ -895,7 +916,7 @@ export function stepCar(c: CarState, ctl: Controls, track: Track, assists: Reado
     const fLat = -Math.sign(vLat) * Math.min(Math.abs(vLat) * LAT_DAMP, maxF * tyreCurve(alpha / peak, front ? SLIDE_GRIP : 1));
     // Past the peak the tyre is sliding: smoke and squeal.
     if (alpha > peak * SLIP_SHOW && maxF > 0.5) slipSum += Math.min(1, (alpha / peak - SLIP_SHOW) / 1.5);
-    const tract = MU_ROAD * Math.max(hit.grip, GRASS_TRACTION) * (front ? MU_FRONT : 1 - DRIFT_GRIP * c.drift) * fs;
+    const tract = MU_ROAD * Math.max(hit.grip, hit.surf === 'sand' ? SAND_TRACTION : GRASS_TRACTION) * (front ? MU_FRONT : 1 - DRIFT_GRIP * c.drift) * fs;
     tyres[w] = { front, fs, r, wf, ws, vLong, fLat, fLong: 0, maxF, tract, circle: maxF };
   }
 
@@ -1063,11 +1084,17 @@ export function stepCar(c: CarState, ctl: Controls, track: Track, assists: Reado
     }
   }
 
-  // Grass drag: a body force, so it slows the car without using up steering grip.
-  if (grassWheels > 0) {
+  // Grass drag: a body force, so it slows the car without using up steering grip. Sand and splash zones
+  // add their own (a run on neither computes exactly what it always did).
+  if (grassWheels > 0 || splashWheels > 0) {
     const vh = Math.hypot(c.vel.x, c.vel.z);
     if (vh > 0.05) {
-      const decel = Math.min(GRASS_MAX_DECEL, GRASS_ROLL + GRASS_DRAG * vh * vh) * (grassWheels / 4);
+      let decel =
+        sandWheels === 0
+          ? Math.min(GRASS_MAX_DECEL, GRASS_ROLL + GRASS_DRAG * vh * vh) * (grassWheels / 4)
+          : Math.min(GRASS_MAX_DECEL, GRASS_ROLL + GRASS_DRAG * vh * vh) * ((grassWheels - sandWheels) / 4) +
+            Math.min(SAND_MAX_DECEL, SAND_ROLL + SAND_DRAG * vh * vh) * (sandWheels / 4);
+      if (splashWheels > 0) decel += Math.min(SPLASH_MAX_DECEL, SPLASH_ROLL + SPLASH_DRAG * vh * vh) * (splashWheels / 4);
       // Never more than stops the car this tick, so it cannot push it backwards.
       const k = Math.min(decel, vh / dt) / vh;
       force.x -= c.vel.x * k;

@@ -82,6 +82,8 @@ describe('App.playRace', () => {
     store: { profile: { models: Record<string, string> } };
     startRace: ReturnType<typeof vi.fn>;
     waitForModel: (v: string) => Promise<boolean>;
+    blockLocked: () => boolean;
+    blockChained: () => boolean;
   };
   const entry = { vehicle: 'car' } as never;
   let screen: object = {};
@@ -95,6 +97,8 @@ describe('App.playRace', () => {
       store: { profile: { models: { car: 'sport' } } },
       startRace: vi.fn(),
       waitForModel: wait,
+      blockLocked: () => false,
+      blockChained: () => false,
     };
   }
   const play = (f: Fake) => App.prototype.playRace.call(f as unknown as App, entry);

@@ -16,6 +16,8 @@ import { TouchControls } from '../input/touchControls';
 import { STEER_LABEL } from '../input/touchModel';
 import { TouchWatch } from '../input/touchWatch';
 import { deviceInfo, keepAwake, setGestureExclusion, watchGestureInsets, type DeviceInfo } from '../platform/native';
+import { findCdvPurchase, Purchases, type CdvNamespace } from '../platform/purchases';
+import { runtimeChannel, UpdateChecker, type UpdateInfo } from '../platform/updates';
 import { CameraRig } from '../render/cameraRig';
 import { CarView, type CarViewOptions, type PoseSnapshot } from '../render/carView';
 import { ensureModel, loadModel, readyModel, setModelRenderer } from '../render/modelCache';
@@ -26,12 +28,25 @@ import { campaign } from '../track/campaign';
 import { exportTrack, importTrack } from '../track/format';
 import { Track, type TrackData } from '../track/track';
 import { traceRoute } from '../track/route';
-import { $, downloadText, esc, pickTextFile, showScreen, toast } from '../ui/dom';
+import { $, downloadText, esc, pickTextFile, popupOpen, showScreen, toast } from '../ui/dom';
 import { Hud } from '../ui/hud';
 import { authorLabel, authorRevealed, chipHtml, medalDot } from '../ui/medalUi';
 import { CC_BY_URL, creditsHtml } from '../ui/credits';
 import { bindSlider, sliderHtml } from '../ui/slider';
 import { customAuthorTime } from './authorTime';
+import {
+  APP_VERSION,
+  campaignSets,
+  devSimulation,
+  effectiveModel,
+  effectiveVehicle,
+  entryLock,
+  fullGame,
+  premiumTrackIds,
+  trackTheme,
+  vehicleLocked,
+} from './fullGame';
+import { fullGameScreenOpen, refreshFullGameScreen, showFullGameScreen } from './fullGameScreen';
 import { EditorMode } from './editorMode';
 import { isLongFrame, liftInside, type FocusDetail } from './pauseGuard';
 import { homeCardHtml, showProfileScreen, type ProfileMode } from './profileScreen';
@@ -39,6 +54,7 @@ import { RaceMode, type RaceEntry } from './raceMode';
 import { ReplayMode } from './replayMode';
 import { showTiltScreen } from './tiltScreen';
 import { bindTiltControls, recentreSaved, tiltGaugeHtml, tiltSliderHtml, tiltValHtml } from './tiltUi';
+import { showUpdatePopup } from './updateUi';
 
 /**
  * Built only inside the factory passed to App.setMode, after the previous mode has exited.
@@ -74,12 +90,28 @@ export function routeComplete(data: TrackData): boolean {
   return ok;
 }
 
-/** Buttons, not a drop-down, so a second-finger tap (pointerup routing in showScreen) works. */
-function vehicleSegHtml(cur: VehicleClass): string {
-  return `<div class="seg veh-seg" role="group" aria-label="Vehicle">${VEHICLE_CLASSES.map(
-    (v) => `<button class="btn small ${v === cur ? 'sel' : ''}" data-act="veh" data-v="${v}" aria-pressed="${v === cur}">${VEHICLE_LABEL[v]}</button>`,
-  ).join('')}</div>`;
+/**
+ * Buttons, not a drop-down, so a second-finger tap (pointerup routing in showScreen) works. A class that
+ * needs the Full Game carries a lock and opens the Full Game screen.
+ */
+export function vehicleSegHtml(cur: VehicleClass, unlocked = fullGame().unlocked): string {
+  return `<div class="seg veh-seg" role="group" aria-label="Vehicle">${VEHICLE_CLASSES.map((v) => {
+    const lock = vehicleLocked(v, unlocked);
+    return `<button class="btn small ${v === cur ? 'sel' : ''}${lock ? ' locked' : ''}" data-act="veh" data-v="${v}" aria-pressed="${v === cur}"${
+      lock ? ' title="Full Game"' : ''
+    }>${lock ? '<span class="lock" aria-label="Locked: Full Game">&#128274;</span>' : ''}${VEHICLE_LABEL[v]}</button>`;
+  }).join('')}</div>`;
 }
+
+/** Campaign > the Stadium / Desert / Water switch (shown once there is more than one set). */
+function setSegHtml(sets: readonly { theme: string; label: string }[], cur: string): string {
+  return `<div class="seg set-seg" role="group" aria-label="Track set">${sets
+    .map((s) => `<button class="btn small ${s.theme === cur ? 'sel' : ''}" data-act="set" data-v="${esc(s.theme)}" aria-pressed="${s.theme === cur}">${esc(s.label)}</button>`)
+    .join('')}</div>`;
+}
+
+/** Settings > tap the version this many times (debug Android builds) for the Full Game dev switch. */
+export const DEV_TAPS = 7;
 
 /** The one-time toast on the first race on a touchscreen after the controls update. */
 export const CONTROLS_TIP = 'New: steering wheel, tilt and pedal bars - change them in the pause menu';
@@ -181,6 +213,16 @@ export class App {
   private lastWork = 0;
   /** Which frames are drawn while the mode thins them out (RaceMode.renderEvery). */
   private readonly frameSkip = new FrameSkip();
+  /** Google Play billing for the Full Game (Android builds; null elsewhere and until start()). */
+  purchases: Purchases | null = null;
+  /** Campaign > the set (theme) on show; a campaign race opens its own set. */
+  private campaignSet: string | null = null;
+  /** Settings > taps on the version line, for the debug builds' dev switch. */
+  private versionTaps = 0;
+  /** GitHub release check: APK installs on Android only (never Google Play installs, web or portal builds). */
+  readonly updates = new UpdateChecker({ channel: runtimeChannel });
+  /** An update the automatic check found while the home page was not on show: offered on the next one. */
+  private pendingUpdate: UpdateInfo | null = null;
 
   constructor(readonly ads: Ads = new Ads()) {
     const canvas = $<HTMLCanvasElement>('#view');
@@ -322,6 +364,12 @@ export class App {
   back(): boolean {
     try {
       if (this.mode instanceof RaceMode && this.mode.back(this.touches.recent(), performance.now())) return true;
+      // A pop-up over a menu (the update offer) closes before the screen under it is left.
+      const popBack = document.querySelector<HTMLElement>('#screens > .popup [data-act="back"]');
+      if (popBack) {
+        popBack.click();
+        return true;
+      }
       const exit = document.querySelector<HTMLElement>(
         '#screens [data-act="back"], #screens [data-act="exit"], #screens [data-act="menu"]',
       );
@@ -362,13 +410,14 @@ export class App {
    * The player's vehicle as the profile describes it: race, replay and the menu car all build it from
    * this. `vehicle` is the class of the run (default the profile's); the body style is the car's.
    */
-  playerCarOptions(vehicle: VehicleClass = this.store.profile.vehicle): CarViewOptions {
+  playerCarOptions(vehicle: VehicleClass = this.effectiveVehicle()): CarViewOptions {
     const p = this.store.profile;
     return {
       color: p.carColor,
       vehicle,
       body: p.carBody,
-      model: p.models[vehicle] ?? null,
+      // A realistic model without the Full Game is drawn Classic; the profile keeps the choice.
+      model: effectiveModel(p, vehicle),
       avatar: p.showBadge ? { photo: this.store.profilePhoto(), ring: p.carColor } : null,
     };
   }
@@ -382,7 +431,7 @@ export class App {
   profileChanged(kind: ProfileChange): void {
     const m = this.mode;
     if (!(m instanceof AttractMode) || kind === 'name') return;
-    if (kind === 'vehicle') m.setVehicle(this.store.profile.vehicle);
+    if (kind === 'vehicle') m.setVehicle(this.effectiveVehicle());
     else if (kind === 'color') m.setColor(this.store.profile.carColor);
     else {
       m.refreshCar();
@@ -392,13 +441,84 @@ export class App {
     if (kind === 'vehicle' || kind === 'model') this.preloadModel();
   }
 
-  /** Choose the vehicle class (Profile > Vehicle, the Campaign switch) and save it. Each run keeps the class it started with. */
-  setVehicle(v: VehicleClass): void {
+  /**
+   * Choose the vehicle class (Profile > Vehicle, the Campaign switch) and save it. Each run keeps the class
+   * it started with. A class that needs the Full Game is not chosen (false): the caller opens the store.
+   */
+  setVehicle(v: VehicleClass): boolean {
+    if (vehicleLocked(v)) return false;
     const p = this.store.profile;
-    if (p.vehicle === v) return;
+    if (p.vehicle === v) return true;
     p.vehicle = v;
     this.store.saveProfile();
     this.profileChanged('vehicle');
+    return true;
+  }
+
+  /** The class races use: the profile's, or the Car while that class needs the Full Game (the saved choice is kept). */
+  effectiveVehicle(): VehicleClass {
+    return effectiveVehicle(this.store.profile);
+  }
+
+  // ---------------------------------------------------------------- Full Game
+
+  /**
+   * Start Google Play billing (Android builds) and follow the entitlement. The local copy unlocks at once
+   * (offline too); the store's answer confirms it, or takes it away after a refund.
+   */
+  async startBilling(): Promise<void> {
+    const fg = fullGame();
+    fg.onChange(() => this.fullGameChanged());
+    if (!fg.billing) return;
+    let find: () => CdvNamespace | undefined = findCdvPurchase;
+    const sim = devSimulation();
+    if (import.meta.env.DEV && sim) {
+      const fake = (await import('../platform/fakeBilling')).fakeCdvPurchase(sim === 'owned');
+      find = () => fake;
+    }
+    this.purchases = new Purchases(
+      {
+        owned: () => fg.storeSays(true),
+        notOwned: () => fg.storeSays(false),
+        changed: () => refreshFullGameScreen(),
+      },
+      find,
+    );
+    await this.purchases.init();
+  }
+
+  /**
+   * The Full Game was bought, restored, refunded or switched in the dev menu: the menu car takes the
+   * class and model the profile now allows, and the screens that show locks are redrawn.
+   */
+  fullGameChanged(): void {
+    const unlocked = fullGame().unlocked;
+    if (this.mode instanceof AttractMode) {
+      if (this.mode.vehicle !== this.effectiveVehicle()) this.profileChanged('vehicle');
+      else this.profileChanged('model');
+    }
+    if (fullGameScreenOpen()) {
+      refreshFullGameScreen();
+      return;
+    }
+    if (unlocked) toast('Full Game unlocked. Thank you!', 3000);
+    const screen = currentScreen();
+    if (screen?.classList.contains('home')) this.mainMenu();
+    else if (screen?.classList.contains('campaign')) this.campaignMenu(screen.scrollTop);
+  }
+
+  /** The Full Game screen; Back goes to `back`. Every lock badge opens it. */
+  showFullGame(back: () => void): void {
+    this.ensureAttract();
+    this.setGarageView(false);
+    this.hud.show(false);
+    this.showTouch(false);
+    showFullGameScreen(this, back);
+  }
+
+  /** A race that needs the Full Game (its class, or a premium campaign track), or null when it may start. */
+  entryLock(entry: Pick<RaceEntry, 'vehicle' | 'base'>): ReturnType<typeof entryLock> {
+    return entryLock(entry, campaign());
   }
 
   /** Garage view for the profile pages: the menu car parks and the camera orbits it, right of centre. */
@@ -575,10 +695,52 @@ export class App {
 
   /** First screen after launch: the setup page until it has been done or skipped once, then home. */
   start(): void {
+    void this.startBilling().catch((e) => console.warn('[iap] billing did not start', e));
     if (this.store.profile.setupDone) this.mainMenu();
     else this.profileScreen('setup', () => this.mainMenu());
     // The realistic model, if one is picked, loads once the menu is up; the menu car swaps to it.
     setTimeout(() => this.preloadModel(), 1500);
+    // Who installed the app (no request): Settings shows Check for updates on APK installs only.
+    void this.updates.channel();
+    // `npm run dev` with ?update=demo: the update pop-up with sample data (no request), to check its layout.
+    if (import.meta.env.DEV && /[?&]update=demo\b/.test(location.search)) {
+      this.pendingUpdate = {
+        version: '9.9.0',
+        tag: 'v9.9.0',
+        notes: 'New: <b>a demo</b> of the update pop-up.\n\n- Faster menus\n- A new Desert track\n- Fixes for the pause screen on Android 14 and a much longer line to see how the notes wrap inside the panel',
+        apk: { name: 'VelocityBlocks-v9.9.0.apk', url: 'https://github.com/Mitovoid-AI/VelocityBlocks/releases/download/v9.9.0/VelocityBlocks-v9.9.0.apk', size: 31_400_000 },
+      };
+      setTimeout(() => this.offerUpdate(), 500);
+    }
+  }
+
+  /**
+   * Called once the menu is on screen (main.ts): the automatic update check, a few seconds later. It only
+   * asks GitHub on an APK install, at most once a day (platform/updates.ts), and stays silent on failure.
+   */
+  checkUpdatesSoon(delayMs = 3000): void {
+    setTimeout(() => {
+      void this.updates.auto().then(
+        (info) => {
+          if (!info) return;
+          this.pendingUpdate = info;
+          this.offerUpdate();
+        },
+        () => {},
+      );
+    }, delayMs);
+  }
+
+  /**
+   * Offer the pending update, on the home page only (never over a race, the editor or another menu). It stays
+   * pending until the player answers it, so a home page redrawn under the pop-up offers it again.
+   */
+  private offerUpdate(): void {
+    const info = this.pendingUpdate;
+    if (!info || popupOpen() || !currentScreen()?.classList.contains('home')) return;
+    showUpdatePopup(this.updates, info, () => {
+      if (this.pendingUpdate === info) this.pendingUpdate = null;
+    });
   }
 
   /**
@@ -586,13 +748,13 @@ export class App {
    * still that class wanting that model, the menu car is rebuilt with it (and its shaders built before the
    * next frame). A failed load leaves the classic vehicle.
    */
-  preloadModel(vehicle: VehicleClass = this.store.profile.vehicle): void {
-    const id = this.store.profile.models[vehicle];
+  preloadModel(vehicle: VehicleClass = this.effectiveVehicle()): void {
+    const id = effectiveModel(this.store.profile, vehicle);
     if (!id) return;
     if (readyModel(id)) return;
     void loadModel(id).then((t) => {
       const m = this.mode;
-      if (!t || !(m instanceof AttractMode) || m.vehicle !== vehicle || this.store.profile.models[vehicle] !== id || m.drawnModel === id) return;
+      if (!t || !(m instanceof AttractMode) || m.vehicle !== vehicle || effectiveModel(this.store.profile, vehicle) !== id || m.drawnModel === id) return;
       m.refreshCar();
       this.world.requestWarm();
     });
@@ -614,9 +776,11 @@ export class App {
          <button class="btn" data-act="editor">Track editor</button>
          <button class="btn" data-act="settings">Settings</button>
          <button class="btn" data-act="help">How to play</button>
+         ${fullGame().unlocked ? '' : '<button class="btn fg-cta" data-act="fullgame">&#9733;&nbsp; Get Full Game</button>'}
        </div>`,
       'menu-main home with-banner',
       {
+        fullgame: () => this.showFullGame(() => this.mainMenu()),
         profile: () => this.profileScreen('edit', () => this.mainMenu()),
         play: () => this.campaignMenu(),
         tracks: () => this.myTracks(),
@@ -625,6 +789,7 @@ export class App {
         help: () => this.helpScreen(),
       },
     );
+    this.offerUpdate();
   }
 
   /** Setup page or profile editor over the menu car; it turns the garage view on itself. */
@@ -643,22 +808,33 @@ export class App {
   campaignMenu(scrollTop = 0): void {
     this.ensureAttract();
     const list = campaign();
+    // The sets (Stadium, Desert, Water): one on show at a time, each with its own unlock chain.
+    const sets = campaignSets(list);
+    const set = sets.find((x) => x.theme === this.campaignSet) ?? sets[0];
+    const unlocked = fullGame().unlocked;
+    const premium = unlocked ? new Set<string>() : premiumTrackIds(list);
     // A finish under an earlier physics version, or with any vehicle or wall mode, unlocks the next
-    // track; PBs and medals come from this version's records for this vehicle and wall mode only.
+    // track of the set; PBs and medals come from this version's records for this vehicle and wall mode only.
     // Browser builds can open the first locked track with a rewarded ad.
-    const locks = campaignLocks(
-      list.map((ct) => `c:${ct.id}`),
-      (k) => this.store.hasFinished(k),
-      (k) => this.store.adUnlocked(k),
-    );
+    const locks = this.setLocks(set.indices);
     const canReward = this.ads.canReward();
-    const cards = list
-      .map((ct, idx) => {
-        const { locked } = locks[idx];
-        const offer = locks[idx].unlockable && canReward;
+    /** A card's campaign index (its data-id, else data-i), or -1 when it is not a track of the set on show. */
+    const cardIndex = (el: HTMLElement): number => {
+      const id = el.dataset.id;
+      const idx = id ? list.findIndex((c) => c.id === id) : Number(el.dataset.i);
+      return set.indices.includes(idx) ? idx : -1;
+    };
+    const cards = set.indices
+      .map((idx, n) => {
+        const ct = list[idx];
+        // A premium track without the Full Game: the lock badge opens the store, whatever the chain says.
+        const paid = premium.has(ct.id);
+        const locked = paid || locks[n].locked;
+        const offer = !paid && locks[n].unlockable && canReward;
         const name = ct.data.name.replace(/^\S+\s/, '');
         let meta: string;
-        if (offer) meta = '<span class="ad-mark">AD</span>Watch an ad to unlock<br/>or finish the previous track';
+        if (paid) meta = '<span class="fg-badge">&#128274; Full Game</span>';
+        else if (offer) meta = '<span class="ad-mark">AD</span>Watch an ad to unlock<br/>or finish the previous track';
         else if (locked) meta = '&#128274; Finish the previous track';
         else {
           // The race's own key and author time, so the card and the race can never disagree.
@@ -668,7 +844,7 @@ export class App {
           const medal = medalFor(rec?.best, m);
           meta = `${medal ? medalDot(medal) : ''}PB ${rec ? formatTime(rec.best) : '--'}<br/>${authorLabel(e.authorTime, authorRevealed(rec?.best, m))}`;
         }
-        return `<button class="card ${locked ? 'locked' : ''} ${offer ? 'unlockable' : ''}" data-act="${offer ? 'unlock' : locked ? 'locked' : 'race'}" data-i="${idx}">
+        return `<button class="card ${locked ? 'locked' : ''} ${paid ? 'premium' : ''} ${offer ? 'unlockable' : ''}" data-act="${paid ? 'premium' : offer ? 'unlock' : locked ? 'locked' : 'race'}" data-i="${idx}" data-id="${esc(ct.id)}">
           <div><span class="id">${ct.id}</span><span class="series s-${ct.series}">${ct.series}</span></div>
           <div class="name">${esc(name)}</div>
           <div class="meta">${meta}</div>
@@ -677,19 +853,34 @@ export class App {
       .join('');
     const el = showScreen(
       `<div class="header campaign-head"><button class="btn small" data-act="back">&#8592; Back</button><h2>Campaign</h2><div class="spacer"></div>
-         ${this.store.settings.walls ? WALLS_CHIP() : ''}${vehicleSegHtml(this.store.profile.vehicle)}</div>
+         ${this.store.settings.walls ? WALLS_CHIP() : ''}${sets.length > 1 ? setSegHtml(sets, set.theme) : ''}${vehicleSegHtml(this.effectiveVehicle(), unlocked)}</div>
        <div class="grid">${cards}</div>`,
-      'dim with-banner',
+      'dim with-banner campaign',
       {
         back: () => this.mainMenu(),
         locked: () => toast('Finish the previous track to unlock this one.'),
-        unlock: (el) => this.unlockOffer(Number(el.dataset.i)),
-        race: (el) => this.playRace(this.campaignEntry(Number(el.dataset.i))),
+        premium: () => this.showFullGame(() => this.campaignMenu()),
+        unlock: (el) => {
+          const idx = cardIndex(el);
+          if (idx >= 0) this.unlockOffer(idx);
+        },
+        // The card's own track (by id), and only while it is on the set on show: never another set's track
+        // at the same position. playRace checks the locks again.
+        race: (el) => {
+          const idx = cardIndex(el);
+          if (idx >= 0) void this.playRace(this.campaignEntry(idx));
+        },
+        set: (b) => {
+          const t = sets.find((x) => x.theme === b.dataset.v);
+          if (!t || t === set) return;
+          this.campaignSet = t.theme;
+          this.campaignMenu();
+        },
         veh: (b) => {
           const v = VEHICLE_CLASSES.find((x) => x === b.dataset.v);
-          if (!v || v === this.store.profile.vehicle) return;
+          if (!v || v === this.effectiveVehicle()) return;
           const top = el.scrollTop;
-          this.setVehicle(v);
+          if (!this.setVehicle(v)) return this.showFullGame(() => this.campaignMenu(top));
           this.campaignMenu(top);
         },
       },
@@ -697,11 +888,41 @@ export class App {
     if (scrollTop && el) el.scrollTop = scrollTop;
   }
 
+  /** The unlock chain of one campaign set (its tracks' campaign indices, in order): finish one to open the next. */
+  private setLocks(indices: readonly number[]): ReturnType<typeof campaignLocks> {
+    const list = campaign();
+    return campaignLocks(
+      indices.map((i) => `c:${list[i].id}`),
+      (k) => this.store.hasFinished(k),
+      (k) => this.store.adUnlocked(k),
+    );
+  }
+
+  /** The set a campaign track belongs to, and its place in that set (null: no such track). */
+  private setOfTrack(i: number): { indices: number[]; pos: number } | null {
+    for (const s of campaignSets(campaign())) {
+      const pos = s.indices.indexOf(i);
+      if (pos >= 0) return { indices: s.indices, pos };
+    }
+    return null;
+  }
+
+  /**
+   * True when a campaign track is shut by its set's unlock chain: the track before it in the same set is
+   * not finished (with any vehicle, wall mode or physics version) and no rewarded ad opened it. The first
+   * track of every set (A01, D01, W01) is always open. The Full Game locks are separate (entryLock).
+   */
+  chainLocked(i: number): boolean {
+    const s = this.setOfTrack(i);
+    return !s || this.setLocks(s.indices)[s.pos].locked;
+  }
+
   /** Rewarded ad offer for a locked campaign track. Both choices look the same (portal rule). */
   private unlockOffer(i: number): void {
     const list = campaign();
     const ct = list[i];
-    const prev = list[i - 1];
+    const s = this.setOfTrack(i);
+    const prev = s && s.pos > 0 ? list[s.indices[s.pos - 1]] : undefined;
     showScreen(
       `<div class="panel result" style="margin:auto;max-width:480px">
         <h2 style="margin:0 0 10px">Unlock ${esc(ct.id)}?</h2>
@@ -734,7 +955,7 @@ export class App {
    */
   campaignEntry(
     i: number,
-    vehicle: VehicleClass = this.store.profile.vehicle,
+    vehicle: VehicleClass = this.effectiveVehicle(),
     walls: boolean = this.store.settings.walls,
   ): RaceEntry {
     const ct = campaign()[i];
@@ -751,16 +972,47 @@ export class App {
     };
   }
 
-  /** "Next track" keeps the run's vehicle and wall mode. */
+  /**
+   * "Next track": the next track of the same set (none after a set's last one: A12, D06 and W06 lead to the
+   * menu, not into another set). It keeps the run's vehicle and wall mode.
+   */
   nextCampaignEntry(e: RaceEntry): RaceEntry | null {
     if (e.campaignIndex === undefined) return null;
-    const n = e.campaignIndex + 1;
-    return n < campaign().length ? this.campaignEntry(n, e.vehicle, e.walls) : null;
+    const s = this.setOfTrack(e.campaignIndex);
+    const n = s ? s.indices[s.pos + 1] : undefined;
+    return n !== undefined ? this.campaignEntry(n, e.vehicle, e.walls) : null;
   }
 
-  startRace(entry: RaceEntry): void {
+  /**
+   * Every race starts here (menus, Next track, Retry from a replay, editor test drives). One that needs the
+   * Full Game opens its screen instead (false); Back from it goes to the menu the race belongs to. A
+   * campaign track its set's chain still shuts never starts either (false: the campaign menu instead).
+   */
+  startRace(entry: RaceEntry): boolean {
+    if (this.blockLocked(entry) || this.blockChained(entry)) return false;
     this.audio.unlock();
+    if (entry.campaignIndex !== undefined) {
+      const ct = campaign()[entry.campaignIndex];
+      if (ct) this.campaignSet = trackTheme(ct);
+    }
     this.setMode(() => new RaceMode(this, entry));
+    return true;
+  }
+
+  /** A locked race: the Full Game screen instead, and true. Back goes to the campaign, the editor or My tracks. */
+  blockLocked(entry: RaceEntry): boolean {
+    if (!this.entryLock(entry)) return false;
+    const back = entry.fromEditor ? () => this.openEditor() : entry.campaignIndex !== undefined ? () => this.campaignMenu() : () => this.myTracks();
+    this.showFullGame(back);
+    return true;
+  }
+
+  /** A campaign track its set's unlock chain shuts: say so, show the campaign, and true. */
+  blockChained(entry: RaceEntry): boolean {
+    if (entry.campaignIndex === undefined || !this.chainLocked(entry.campaignIndex)) return false;
+    toast('Finish the previous track to unlock this one.');
+    this.campaignMenu();
+    return true;
   }
 
   /**
@@ -769,6 +1021,8 @@ export class App {
    */
   async playRace(entry: RaceEntry): Promise<void> {
     if (this.ads.busy) return;
+    // No ad and no model load for a race that cannot start.
+    if (this.blockLocked(entry) || this.blockChained(entry)) return;
     const screen = currentScreen();
     const mode = this.mode;
     const p = this.pendingStart;
@@ -797,7 +1051,7 @@ export class App {
    * it failed or timed out, and the race goes ahead with the classic vehicle instead of hanging.
    */
   private async waitForModel(vehicle: VehicleClass, current: () => boolean = () => true): Promise<boolean> {
-    const id = this.store.profile.models[vehicle];
+    const id = effectiveModel(this.store.profile, vehicle);
     if (!id || readyModel(id)) return true;
     const tip = setTimeout(() => {
       if (current()) toast('Loading vehicle…', 2500);
@@ -815,7 +1069,7 @@ export class App {
     data: TrackData,
     fromEditor = false,
     onAuthorTime?: (t: number) => void,
-    vehicle: VehicleClass = this.store.profile.vehicle,
+    vehicle: VehicleClass = this.effectiveVehicle(),
     walls: boolean = this.store.settings.walls,
   ): RaceEntry {
     const base = `u:${layoutHash(data)}`;
@@ -975,9 +1229,13 @@ export class App {
            .map((on) => `<button class="btn small ${on === s.walls ? 'sel' : ''}" data-act="walls" data-v="${on ? 'on' : 'off'}" aria-pressed="${on === s.walls}">${on ? 'On' : 'Off'}</button>`)
            .join('')}</div>
            <div class="muted form-note">Barriers on every road edge. Times with walls are kept apart.</div></div>
+         ${this.fullGameSettingsHtml()}
          <label>Progress</label><div><button class="btn small" data-act="reset">Reset records &amp; ghosts</button></div>
          <label>Credits</label><div><button class="btn small" data-act="credits">Credits &amp; licenses</button></div>
-       </div></div>`,
+         ${this.updates?.channelNow === 'sideload' ? '<label>Updates</label><div><button class="btn small" data-act="updates">Check for updates</button></div>' : ''}
+       </div>
+       <div class="s-version"><span data-act="ver" class="s-ver">Velocity Blocks ${APP_VERSION}</span></div>
+       ${this.devSwitchHtml()}</div>`,
       'dim',
       {
         walls: (b) => {
@@ -1003,6 +1261,26 @@ export class App {
           this.store.saveSettings();
           this.creditsScreen(() => this.settingsMenu(back));
         },
+        fullgame: () => {
+          this.store.saveSettings();
+          this.showFullGame(() => this.settingsMenu(back));
+        },
+        ver: () => {
+          // Debug Android builds: DEV_TAPS taps show the Full Game dev switch. Release builds: nothing.
+          if (!fullGame().devTools) return;
+          this.versionTaps++;
+          if (this.versionTaps === DEV_TAPS) {
+            toast('Developer options on');
+            this.settingsMenu(back);
+          }
+        },
+        'dev-fg': (b) => {
+          const v = b.dataset.v;
+          fullGame().setDev(v === 'owned' || v === 'free' ? v : null);
+          this.store.saveSettings();
+          this.settingsMenu(back);
+        },
+        updates: (b) => this.checkUpdatesNow(b),
         reset: () => {
           if (confirm('Reset all personal bests and ghosts? Your own tracks are kept.')) {
             this.store.resetProgress();
@@ -1062,6 +1340,44 @@ export class App {
     bindTiltControls(el, this);
   }
 
+  /** Settings > Check for updates: asks GitHub now and says what it found (or shows the offer). */
+  private checkUpdatesNow(btn: HTMLElement): void {
+    const b = btn as HTMLButtonElement;
+    if (b.disabled) return;
+    b.disabled = true;
+    b.textContent = 'Checking…';
+    void this.updates.manual().then((r) => {
+      b.disabled = false;
+      b.textContent = 'Check for updates';
+      if (!b.isConnected) return; // left Settings meanwhile
+      if (r.kind === 'update') showUpdatePopup(this.updates, r.info);
+      else if (r.kind === 'current') toast(`You're up to date (${APP_VERSION})`);
+      else toast("Couldn't check for updates. Check the connection and try again later.", 3200);
+    });
+  }
+
+  /** Settings > Full Game: Get it (store builds without it), or that it is owned with Restore at hand. */
+  private fullGameSettingsHtml(): string {
+    const fg = fullGame();
+    if (!fg.billing) return '';
+    return `<label>Full Game</label><div>${
+      fg.unlocked
+        ? '<span class="fg-owned">&#10003; Unlocked</span> <button class="btn small" data-act="fullgame">Details</button>'
+        : '<button class="btn small fg-cta" data-act="fullgame">&#9733; Get Full Game</button>'
+    }</div>`;
+  }
+
+  /** Debug builds, after DEV_TAPS taps on the version: simulate owning the Full Game or not. */
+  private devSwitchHtml(): string {
+    const fg = fullGame();
+    if (!fg.devTools || this.versionTaps < DEV_TAPS) return '';
+    const cur = fg.devOverride ?? 'store';
+    const opt = (v: string, label: string) =>
+      `<button class="btn small ${v === cur ? 'sel' : ''}" data-act="dev-fg" data-v="${v}" aria-pressed="${v === cur}">${label}</button>`;
+    return `<div class="panel s-dev"><div class="muted">Developer: Full Game (debug builds only). Store says: ${fg.owned ? 'owned' : 'not owned'}.</div>
+      <div class="seg" role="group" aria-label="Simulate the Full Game">${opt('store', 'Follow store')}${opt('owned', 'Owned')}${opt('free', 'Not owned')}</div></div>`;
+  }
+
   private wallsTimer: ReturnType<typeof setTimeout> | undefined;
 
   /**
@@ -1099,7 +1415,11 @@ export class App {
        <div class="panel" style="max-width:760px">
          <p>Drive from <b>Start</b> to <b>Finish</b> as fast as you can. Pass through <b>every checkpoint</b> first, in any order. Beat the bronze, silver and gold times, then the <b>secret author time</b>: it is revealed when you beat it. Your best run is saved as a ghost to race against.</p>
          <p>You can leave the road and drive on the grass, but grass is slow. A checkpoint only counts when you drive through its gate, between the posts. Settings &gt; <b>Walls on all roads</b> puts barriers along every road; times with walls are kept separately.</p>
-         <p>Pick a <b>Car</b>, <b>Bike</b> or <b>Truck</b> in your driver profile or at the top of the Campaign. Each drives differently and has its own records, medals and author times; finishing a track with any of them unlocks the next one.</p>
+         <p>Pick a <b>Car</b>, <b>Bike</b> or <b>Truck</b> in your driver profile or at the top of the Campaign. Each drives differently and has its own records, medals and author times; finishing a track with any of them unlocks the next one.${
+           fullGame().billing
+             ? ' The Bike, the Truck, the Realistic models and the Desert and Water tracks after the first come with the <b>Full Game</b>.'
+             : ''
+         }</p>
          <div class="keys">
            <div><kbd>&uarr;</kbd> <kbd>W</kbd></div><div>Accelerate</div>
            <div><kbd>&darr;</kbd> <kbd>S</kbd> <kbd>Space</kbd></div><div>Brake / reverse. Tap it while steering at speed to drift.</div>
@@ -1166,7 +1486,7 @@ export class AttractMode implements Mode {
     this.track = track;
     this.app.world.setTrack(track);
     this.app.rig.mode = 'far';
-    this.startVehicle(this.app.store.profile.vehicle);
+    this.startVehicle(this.app.effectiveVehicle());
     this.time = 0;
     // Sanity: a broken route would leave the bot stuck; skip such a track.
     if (!traceRoute(track).complete) this.idx++;

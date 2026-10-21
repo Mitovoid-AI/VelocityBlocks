@@ -14,7 +14,9 @@ only; the vehicle models in `public/vehicles/` keep their own license.
 
 ## Features
 
-- **12-track campaign** (White → Black series) with Author / Gold / Silver / Bronze medals.
+- **24-track campaign** in three sets, Stadium (A01-A12), Desert (D01-D06: sand, dunes, mesas, sunsets)
+  and Water (W01-W06: bridges and jumps over lakes and rivers, splash zones), each graded White → Black,
+  with Author / Gold / Silver / Bronze medals.
   Each track is checked by an autopilot that has to finish it, and that autopilot's time is the
   author time.
 - **Arcade physics with F1-style handling** at a fixed 100 Hz tick: a rigid body on four
@@ -47,7 +49,7 @@ only; the vehicle models in `public/vehicles/` keep their own license.
 - **Ghosts:** your personal-best run is saved and raced against; split times are shown against it
   at every checkpoint.
 - **Replays** with chase, far and trackside cameras at 1x, 0.5x and 0.25x speed.
-- **Track editor:** 13 block types on a 32 × 32 grid with 8 height levels. Rotate, erase, undo,
+- **Track editor:** 15 block types (water and splash zones too) on a 32 × 32 grid with 8 height levels. Rotate, erase, undo,
   route validation, an autopilot check, test drives (your first finish sets the author time), and
   save, export and import as `.vbtrack.json`.
 - **Controls:** keyboard, gamepad (analog triggers) and touch. On touch, steer with the ◀ ▶ buttons,
@@ -114,6 +116,8 @@ node <tmp>/author-times.mjs     # writes src/track/authorTimes.json relative to 
 - `scripts/layout.ts "<track code>"` prints an ASCII map of a track code.
 - `scripts/diag.ts "<track code>" [seconds] [bot|gas]` prints a physics trace.
 - `node scripts/make-icons.mjs` regenerates the Android and iOS icons and splash screens.
+- `npm run release:apk` builds the APK for a GitHub release and prints the `gh release create` command (see
+  [Releasing a new version](#releasing-a-new-version)).
 - `scripts/build-vehicles.ts [id...]` rebuilds the Realistic vehicles (`public/vehicles/*.glb` and
   `CREDITS.md`) from the authors' unzipped Sketchfab glTF downloads in `../assets-src/<folder>/`
   (never committed; override with `VB_ASSETS_SRC`) with gltfpack 1.3 (`../tools/gltfpack/gltfpack.exe`
@@ -123,7 +127,8 @@ node <tmp>/author-times.mjs     # writes src/track/authorTimes.json relative to 
 
 ## Browser builds with ads (CrazyGames, Poki)
 
-The plain web build (`npm run build` → `dist/`) and the Android and iOS apps have no ads. Each
+The plain web build (`npm run build` → `dist/`) and the Android and iOS apps have no ads. Every browser build
+has the whole game unlocked; only the Android app sells the [Full Game](#full-game-android-in-app-purchase). Each
 game portal gets its own build with its ad SDK. The network is picked by the Vite mode, which
 reads `VITE_ADS` from `.env.<mode>`:
 
@@ -155,7 +160,7 @@ the SDK is blocked or fails to load, the game starts after a few seconds and pla
 npm run cap:sync            # build web + copy into android/ and ios/
 ```
 
-**Android** (JDK 17 + Android SDK 35):
+**Android** (JDK 17 + Android SDK 35; the app runs on Android 6.0 / API 23 and up, the minimum of Google Play Billing Library 9):
 
 ```bash
 cd android
@@ -176,6 +181,116 @@ npx cap open ios            # select a team and signing, then Run or Archive
 
 Both apps lock to landscape, hide the system bars and keep the screen awake while running.
 
+## Version
+
+The version is set in one place: `"version"` in `package.json` (`X.Y.Z`). Everything else reads it:
+
+- the web bundle gets it as `__APP_VERSION__` (`vite.config.ts` → `src/platform/appVersion.ts`), shown at the
+  bottom of Settings (the line debug builds tap 7 times for the Full Game dev switch);
+- `android/app/build.gradle` reads `package.json` for `versionName` (`1.2.0`) and computes
+  `versionCode = X*10000 + Y*100 + Z` (1.2.0 → 10200), so a newer version always has a larger code. Google
+  Play's last upload before this was versionCode 3 (1.2). Y and Z must stay under 100; the build stops otherwise.
+
+`tests/appVersion.test.ts` fails if `build.gradle` hard-codes a version again, if `package-lock.json` disagrees,
+or if the version cannot make a valid versionCode. (iOS still has its own `MARKETING_VERSION` in Xcode.)
+
+## Updates (APK installs)
+
+The Android app installed from an APK (a GitHub release, shared by hand) checks for a newer release by itself.
+The Google Play app never does: Play updates it, and Play's policy forbids an app updating itself any other
+way. The web, portal and `npm run dev` builds and iOS never check.
+
+- **Who checks:** `src/platform/updates.ts` asks the app's plugin who installed it
+  (`PackageManager.getInstallSourceInfo` on Android 11+, `getInstallerPackageName` below). Google Play
+  (`com.android.vending`, `com.google.android.feedback`) or an installer Android will not name: no check.
+  Anything else (the package installer, a file manager, `adb`) is an APK install.
+- **When:** a few seconds after the menu is up, at most once every 24 hours (the last check time is kept in
+  `vb.update`, which Reset records does not touch). It is one unauthenticated `GET` of
+  `https://api.github.com/repos/Mitovoid-AI/VelocityBlocks/releases/latest` with an 8 s timeout. Offline,
+  rate-limited (GitHub allows 60 unauthenticated requests an hour per IP) or any other failure: nothing is shown.
+- **What it offers:** a release whose tag (`vX.Y.Z`) is newer than the app's version and that has an `.apk`
+  asset from this repo's releases. Drafts and pre-releases are ignored. On the home page a pop-up says
+  "Update X.Y.Z available" with the release notes (plain text, cut to 600 characters) and **Download**,
+  **Later** (also Android Back) and **Skip this version** (that tag is not offered again automatically).
+- **Download** opens the APK's address in the system browser. The browser downloads it; opening the file
+  installs it over the game (progress is kept). Android asks once to allow installs from that app (the
+  browser or the file manager). The game itself never downloads or installs anything, so it needs no
+  install permission.
+- **Settings > Check for updates** (APK installs only) checks at once and says "You're up to date", shows
+  the pop-up (a skipped version too), or says it couldn't check.
+- An update only installs over an APK signed with the **same key**: a debug-signed build updates debug
+  builds, a release-signed build updates release builds. Switching keys means uninstalling first, which
+  deletes progress. APKs released before 1.2.0 have no update check: install 1.2.0 or later by hand once.
+- `npm run dev` with `?update=demo` shows the pop-up with sample data (no request), to check its layout.
+
+## Releasing a new version
+
+1. Bump `"version"` in `package.json` (and the root `version` in `package-lock.json`, e.g. with
+   `npm version 1.3.0 --no-git-tag-version`). Run `npm run typecheck` and `npm test`.
+2. Build the APK and get the publish command:
+
+   ```bash
+   npm run release:apk -- --notes "Faster menus, a new Desert track"   # release-signed: needs android/keystore.properties
+   npm run release:apk -- --debug --notes-file notes.md               # debug-signed, like the APKs shared so far
+   ```
+
+   It runs `npm run build`, `npx cap sync android` and gradle (`assembleRelease` or `assembleDebug`), copies the
+   APK to `builds/VelocityBlocks-vX.Y.Z.apk` and prints a command like this (it never publishes by itself):
+
+   ```bash
+   gh release create v1.3.0 "builds/VelocityBlocks-v1.3.0.apk" --repo Mitovoid-AI/VelocityBlocks --title "Velocity Blocks 1.3.0" --notes "Faster menus, a new Desert track"
+   ```
+
+3. Check the APK on a phone, then run the printed command (needs the [GitHub CLI](https://cli.github.com/),
+   `gh auth login`). The tag must be `v` + the package.json version. Do not mark it as a draft or a pre-release:
+   the apps only see the latest full release. The notes are what the update pop-up shows.
+4. For Google Play, `npm run android:release` builds the `.aab` with the same version (Play installs never
+   see the GitHub release).
+
+## Full Game (Android in-app purchase)
+
+The Android app is free to play, with one optional, one-time purchase through Google Play: the
+**Full Game** (a non-consumable "managed product" with the id `full_game`).
+
+| Free | Full Game |
+| --- | --- |
+| The whole Stadium campaign (A01-A12) | The other Desert and Water tracks (D02-D06, W02-W06) |
+| The first track of each themed set (D01, W01) | The Bike and the Truck, with their own records and medals |
+| The Car with its four bodies (Racer, Buggy, Muscle, Formula) | The Realistic models (Sport, Coupe, Sedan, Cafe Racer, LCT 3000 '95) |
+| The track editor and My tracks | |
+
+The lock rule is data-driven (`src/app/fullGame.ts`): a campaign track needs the Full Game when it is
+not in the Stadium set and not the first track of its set, unless its data says otherwise (`premium`).
+The classes come from `PREMIUM_VEHICLES` (`src/core/vehicles.ts`) and the models from their `premium`
+flag (`src/core/vehicleModels.ts`). Locked cards, classes and models carry a padlock and open the Full
+Game screen; every race start (menus, Next track, Retry, replays, editor test drives) goes through
+`App.startRace`, which refuses a locked one. A saved profile that points at a locked class or model
+races the Car / Classic look and keeps its choice, so a purchase brings it straight back.
+
+**Which builds sell it**
+
+- **Browser builds** (`npm run dev`, the plain web build, CrazyGames, Poki): everything is unlocked.
+  The portal builds earn from ads instead, and the code is MIT, so anyone can build it for free.
+- **iOS**: no App Store product is set up, so everything is unlocked there too.
+- **Android release builds**: Google Play billing only.
+- **Android debug builds**: Google Play billing, plus a hidden developer switch: Settings > tap the
+  version line 7 times > Follow store / Owned / Not owned.
+- `npm run dev` with `?iap=free` or `?iap=owned` acts as a debug Android build with a fake store (a
+  confirm dialog stands in for Google Play), to try the screens and the purchase flow in a browser.
+
+**How it works.** Billing is [`cordova-plugin-purchase`](https://github.com/j3k0/cordova-plugin-purchase)
+13.18.0 (CdvPurchase v13, Google Play Billing Library 9), which Capacitor runs as a Cordova plugin:
+`npm run cap:sync` installs its native part and the `com.android.vending.BILLING` permission.
+`src/platform/purchases.ts` is a thin wrapper: it registers `full_game`, reads the price, runs the
+purchase, acknowledges (finishes) approved purchases, handles pending payments, Restore purchases,
+cancellations and errors, and never throws when the plugin or Google Play is missing. There is no
+receipt server: the entitlement is stored on the device (`vb.fullgame`, untouched by Reset records)
+so the game works offline, and it is checked against Google Play's purchase list on every start (a
+refunded purchase locks again).
+
+What has to be set up in the Play Console (product, price, license testers, internal testing) is in
+[`store/play-store-listing.md`](store/play-store-listing.md#in-app-purchase-full-game).
+
 ## Project layout
 
 ```
@@ -188,8 +303,10 @@ src/
   render/     three.js world, procedural textures, track meshes, car, camera rig, smoke
   audio/      Web Audio engine/effects
   input/      keyboard, gamepad, touch, tilt
-  app/        app shell + menus, race, replay, editor modes
+  app/        app shell + menus, race, replay, editor modes, Full Game rules and store screen
   ads/        browser-build ads: network-agnostic wrapper, CrazyGames, Poki and test adapters
+  platform/   native bridges: the app's own Android plugin, Google Play billing (purchases.ts),
+              the app version and the GitHub update check for APK installs (updates.ts)
   ui/         HUD, DOM helpers, styles
 tests/        vitest suites
 scripts/      dev tools (see above)
@@ -200,7 +317,16 @@ android/ ios/ Capacitor native projects
 
 `St` start, `F` finish, `C` checkpoint, `S` straight, `B` boost, `T` turbo, `R`/`L` tight curve,
 `R2`/`L2` wide curve, `U`/`D` slope up/down (2 cells, 1 level), `J` jump ramp, `G` gap,
-`@n` set level, `x3` repeat. Example: `St Sx2 C Sx2 R2 Sx2 C S L2 Sx2 F`.
+`W` splash zone (shallow water that drags the car), `@n` set level, `x3` repeat.
+Example: `St Sx2 C Sx2 R2 Sx2 C S L2 Sx2 F`.
+
+Themes and water (the Desert and Water sets): `!desert`, `!water` set the track's theme (look, and sand
+off the road in the desert), `!sunset` a low orange sun. `~` is a gap with water in it that runs on
+sideways as a river (`~2`: at most 2 cells to each side), `~S` (any block) puts the river under that
+block (a bridge, or a causeway at ground level), and `!lake` floods every floor cell not next to a
+ground-level road. A car that drops into water is respawned at the last checkpoint. Water cells are
+blocks too (`~` in track files and the editor palette). `scripts/campaign-gates.ts` runs the campaign
+acceptance gates on new tracks (or trial codes) before the tables are regenerated.
 
 ## Contributing
 
@@ -231,7 +357,9 @@ bundled from the `three` package by the build.
 
 ## License
 
-[MIT](LICENSE) © 2026 Mitovoid-AI, for the code. The vehicle models in `public/vehicles/` are
+[MIT](LICENSE) © 2026 Mitovoid-AI, for the code. Because the code is MIT, anyone may build and play the whole game for
+free from source (the web and portal builds have everything unlocked); the Google Play purchase pays
+for the convenience of the store build and supports development. The vehicle models in `public/vehicles/` are
 CC BY 4.0 (see [Third-party assets](#third-party-assets)).
 
 TrackMania is a trademark of Ubisoft and Nadeo. Velocity Blocks is an independent project and is

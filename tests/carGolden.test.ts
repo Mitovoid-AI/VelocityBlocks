@@ -6,10 +6,10 @@
 // (scripts/car-fingerprint.ts prints them); any change to the car's code path, however small, shows up
 // here. The autopilot drives its v6 lap with its nitro presses dropped (it fires the nitro since round 3,
 // which changes its lap, not the car). tests/nitro.test.ts checks a held-false nitro field against an absent one.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { PHYSICS_VERSION } from '../src/core/constants';
 import { classAuthorTimes, type AuthorTable } from '../src/game/medals';
-import { storedLine } from '../src/game/racingLine';
+import { loadStoredLines, storedLine } from '../src/game/racingLine';
 import authorTimes from '../src/track/authorTimes.json';
 import racingLines from '../src/track/racingLines.json';
 import { Autopilot } from '../src/game/bot';
@@ -17,6 +17,9 @@ import { RaceSession } from '../src/game/race';
 import { createCar, stepCar, type Assists, type CarState, type Controls } from '../src/physics/vehicle';
 import { buildTrack } from '../src/track/builder';
 import { Track } from '../src/track/track';
+
+// The precomputed lines load on first use (the game's bundle leaves them out): campaign line jobs need them.
+beforeAll(() => loadStoredLines());
 
 const NONE: Controls = { steer: 0, gas: 0, brake: 0 };
 const flat = {

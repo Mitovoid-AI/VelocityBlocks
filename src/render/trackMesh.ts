@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { DECK_EDGE, DECK_T, WALL_H, WALL_OFF } from '../core/constants';
+import { CELL, DECK_EDGE, DECK_T, WALL_H, WALL_OFF, WATER_SURFACE_Y } from '../core/constants';
 import { centerAt } from '../track/blocks';
 import { barrierRange, type Column, type PlacedBlock, type Track } from '../track/track';
 import {
@@ -18,6 +18,15 @@ import {
   turfTexture,
 } from './textures';
 import { disposeMaterial } from './texUtil';
+import {
+  desertBarrierTexture,
+  desertKerbTexture,
+  sandBankTexture,
+  waterBarrierTexture,
+  waterKerbTexture,
+} from './themeTextures';
+import { themeLook, type ThemeLook } from './themes';
+import { waterMaterial } from './water';
 
 /** The deck is drawn this far above the physics surface; pads, kerbs and gate lines sit on it. */
 export const DECK_LIFT = 0.03;
@@ -75,6 +84,8 @@ export interface TrackVisual {
   group: THREE.Group;
   update(dt: number): void;
   dispose(): void;
+  /** A splash where a car dropped into water at (x, z) (tracks with water only). */
+  splash?(x: number, z: number): void;
 }
 
 export interface VisualOptions {
@@ -88,6 +99,8 @@ export interface VisualOptions {
    * rough and non-metallic, so the diffuse look barely changes.
    */
   cheap?: boolean;
+  /** Colours for water and the sky in it (World passes its look; default: the track's theme by day). */
+  look?: ThemeLook;
 }
 
 /** A road surface material: Standard, or with `cheap` a Lambert with the same map, colour and vertex colours. */
@@ -96,6 +109,7 @@ function surfaceMaterial(cheap: boolean | undefined, params: THREE.MeshStandardM
   const m = new THREE.MeshLambertMaterial();
   m.map = params.map ?? null;
   m.vertexColors = params.vertexColors ?? false;
+  if (params.color !== undefined) m.color.set(params.color);
   return m;
 }
 
@@ -134,7 +148,7 @@ export function barrierPlan(track: Track): {
   ranges: ([number, number] | null)[];
   joined: (blk: PlacedBlock, s: number) => boolean;
 } {
-  const ranges = track.blocks.map((b) => barrierRange(b, track.walls));
+  const ranges = track.blocks.map((b) => (b.def.water ? null : barrierRange(b, track.walls)));
   const ends = new Map<string, number>();
   const mark = (k: string) => ends.set(k, (ends.get(k) ?? 0) + 1);
   track.blocks.forEach((b, n) => {
@@ -299,7 +313,11 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
   const edge = DECK_EDGE;
   const walls = barrierPlan(track);
 
+  const splashes: PlacedBlock[] = [];
   for (const blk of track.blocks) {
+    // Water cells are drawn as lakes below (waterGeometry).
+    if (blk.def.water) continue;
+    if (blk.def.splash) splashes.push(blk);
     const L = blk.def.length;
     const n = samplesFor(blk);
     const S = (r: number) => (L * r) / (n - 1);
@@ -457,6 +475,10 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
     ? new THREE.MeshBasicMaterial({ color: opts.ghostColor, transparent: true, opacity: 0.45, depthWrite: false })
     : null;
 
+  const theme = track.theme;
+  const look = opts.look ?? themeLook(theme, track.sky);
+  const kerbMap = theme === 'desert' ? desertKerbTexture() : theme === 'water' ? waterKerbTexture() : kerbTexture();
+  const barrierMap = theme === 'desert' ? desertBarrierTexture() : theme === 'water' ? waterBarrierTexture() : barrierTexture();
   const mats = {
     deck:
       ghostMat ??
@@ -468,10 +490,20 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
         metalness: 0.0,
         vertexColors: true,
       }),
-    kerb: ghostMat ?? surfaceMaterial(opts.cheap, { map: kerbTexture(), roughness: 0.7, vertexColors: true }),
-    skirt: ghostMat ?? surfaceMaterial(opts.cheap, { map: concreteTexture(), roughness: 0.95, vertexColors: true }),
-    bank: ghostMat ?? surfaceMaterial(opts.cheap, { map: turfTexture(), roughness: 1, vertexColors: true }),
-    barrier: ghostMat ?? surfaceMaterial(opts.cheap, { map: barrierTexture(), roughness: 0.55, vertexColors: true }),
+    kerb: ghostMat ?? surfaceMaterial(opts.cheap, { map: kerbMap, roughness: 0.7, vertexColors: true }),
+    // Desert decks and pillars are sandstone-tinted concrete.
+    skirt:
+      ghostMat ??
+      surfaceMaterial(opts.cheap, {
+        map: concreteTexture(),
+        roughness: 0.95,
+        vertexColors: true,
+        ...(theme === 'desert' ? { color: 0xf0d2a8 } : {}),
+      }),
+    bank:
+      ghostMat ??
+      surfaceMaterial(opts.cheap, { map: theme === 'desert' ? sandBankTexture() : turfTexture(), roughness: 1, vertexColors: true }),
+    barrier: ghostMat ?? surfaceMaterial(opts.cheap, { map: barrierMap, roughness: 0.55, vertexColors: true }),
     // Pads are lit signs: shown at their true colours, not tone-mapped.
     boost:
       ghostMat ??
@@ -513,6 +545,23 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
     if (merged) add('gate-' + key, merged, part.make(), part.cast, part.cast, part.order);
   }
 
+  // Lakes and rivers: one surface over every water cell, with a sand shore on the land around it.
+  let splashFx: SplashFx | null = null;
+  if (track.waterBlocks.length) {
+    const shore = new THREE.Color(theme === 'desert' ? 0xd9b98a : 0xd8c79a);
+    add('water', waterGeometry(track), ghostMat ?? waterMaterial(look, { cheap: opts.cheap, shore }), false, false);
+    if (!ghost) {
+      splashFx = new SplashFx();
+      group.add(splashFx.mesh);
+    }
+  }
+  // Splash zones: shallow water over the road, see-through over the deck and its racing line.
+  if (splashes.length) {
+    const g = splashGeometry(splashes);
+    add('splash', g, ghostMat ?? waterMaterial(look, { cheap: opts.cheap, opacity: 0.72, scale: 12 }), false, false, 1);
+  }
+  const fx = splashFx;
+
   return {
     group,
     update(dt: number) {
@@ -520,7 +569,9 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
       for (const m of [mats.boost, mats.turbo] as THREE.MeshBasicMaterial[]) {
         if (m.map) m.map.offset.y -= dt * 1.6;
       }
+      fx?.update(dt);
     },
+    splash: fx ? (x: number, z: number) => fx.burst(x, z) : undefined,
     dispose() {
       const done = new Set<THREE.Material>();
       group.traverse((o) => {
@@ -536,4 +587,115 @@ export function buildTrackVisual(track: Track, opts: VisualOptions = {}): TrackV
       });
     },
   };
+}
+
+/**
+ * Water cells as flat quads just above the floor (WATER_SURFACE_Y: the lawn needs no hole), and a 3 m sand
+ * shore on the land side of every edge where water meets land, in one geometry: `land` is 1 on the shore
+ * (water.ts draws it sand-coloured in the same draw call).
+ */
+export function waterGeometry(track: Track): THREE.BufferGeometry {
+  const cells = new Set<string>();
+  for (const b of track.waterBlocks) cells.add(`${b.p.i},${b.p.j}`);
+  const pos: number[] = [];
+  const land: number[] = [];
+  const quad = (shore: number, x0: number, z0: number, x1: number, z1: number, y: number) => {
+    pos.push(x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z1, x1, y, z0, x0, y, z0);
+    for (let k = 0; k < 6; k++) land.push(shore);
+  };
+  const SHORE = 3;
+  const lip = 0.02;
+  const ys = WATER_SURFACE_Y - 0.012;
+  for (const key of cells) {
+    const [i, j] = key.split(',').map(Number);
+    const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL;
+    quad(0, x0 - lip, z0 - lip, x1 + lip, z1 + lip, WATER_SURFACE_Y);
+    if (!cells.has(`${i - 1},${j}`)) quad(1, x0 - SHORE, z0, x0, z1, ys);
+    if (!cells.has(`${i + 1},${j}`)) quad(1, x1, z0, x1 + SHORE, z1, ys);
+    if (!cells.has(`${i},${j - 1}`)) quad(1, x0, z0 - SHORE, x1, z0, ys);
+    if (!cells.has(`${i},${j + 1}`)) quad(1, x0, z1, x1, z1 + SHORE, ys);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('land', new THREE.Float32BufferAttribute(land, 1));
+  g.computeVertexNormals();
+  return g;
+}
+
+/** The water layer of splash zones: the road between the kerbs, a few centimetres over the deck. */
+function splashGeometry(blocks: PlacedBlock[]): THREE.BufferGeometry {
+  const pos: number[] = [];
+  for (const blk of blocks) {
+    const L = blk.def.length;
+    const p = (s: number, d: number) => at(blk, s, d, DECK_LIFT + 0.07);
+    const a = p(0.5, -KERB_IN), b = p(0.5, KERB_IN), c = p(L - 0.5, KERB_IN), d = p(L - 0.5, -KERB_IN);
+    // Both windings, so it shows whichever way the block points.
+    pos.push(...a, ...b, ...c, ...a, ...c, ...d, ...a, ...c, ...b, ...a, ...d, ...c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * A car falling into the water: a foam ring spreading over the surface and an open cone of spray over it,
+ * one mesh scaled and faded out in under a second, hidden while idle (nothing allocated per splash).
+ */
+const SPLASH_LIFE = 0.9;
+
+class SplashFx {
+  readonly mesh: THREE.Mesh;
+  private t = SPLASH_LIFE;
+
+  constructor() {
+    const ring = new THREE.RingGeometry(0.8, 1, 28).rotateX(-Math.PI / 2).translate(0, 0.05, 0);
+    // The spray: a flared column (a cylinder narrowing upwards), fading out towards its top (vertex alpha).
+    const spray = new THREE.CylinderGeometry(0.2, 0.6, 1, 12, 3, true).translate(0, 0.5, 0);
+    const parts = [ring.toNonIndexed(), spray.toNonIndexed()];
+    ring.dispose();
+    spray.dispose();
+    parts.forEach((p, k) => {
+      p.deleteAttribute('uv');
+      const pos = p.attributes.position;
+      const rgba = new Float32Array(pos.count * 4);
+      for (let i = 0; i < pos.count; i++) rgba.set([1, 1, 1, k === 0 ? 0.9 : 0.75 * (1 - pos.getY(i)) ** 1.5], i * 4);
+      p.setAttribute('color', new THREE.BufferAttribute(rgba, 4));
+    });
+    const geo = mergeGeometries(parts)!;
+    parts.forEach((p) => p.dispose());
+    this.mesh = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color: 0xf2f9ff,
+        vertexColors: true,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.mesh.name = 'splash-fx';
+    this.mesh.visible = false;
+  }
+
+  burst(x: number, z: number): void {
+    this.t = 0;
+    this.mesh.position.set(x, WATER_SURFACE_Y, z);
+    this.mesh.visible = true;
+    this.update(0);
+  }
+
+  update(dt: number): void {
+    if (this.t >= SPLASH_LIFE) return;
+    this.t += dt;
+    const k = Math.min(1, this.t / SPLASH_LIFE);
+    if (k >= 1) {
+      this.mesh.visible = false;
+      return;
+    }
+    const r = 2.5 + 9 * Math.sqrt(k);
+    const h = 8 * Math.sin(Math.min(1, k * 1.8) * Math.PI * 0.5) * (1 - k * 0.5);
+    this.mesh.scale.set(r, Math.max(0.01, h), r);
+    (this.mesh.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k);
+  }
 }

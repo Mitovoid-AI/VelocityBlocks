@@ -4,14 +4,16 @@
 //   "format": "velocity-blocks-track", "version": 1,
 //   "name": "...", "author": "...", "authorTime": 23450,
 //   "authorTimes": { "bike": { "t": 25100, "rev": 1 } },   // optional: the other vehicle classes
-//   "blocks": [["St", 3, 4, 0, 0], ["S", 3, 3, 0, 0], ...]   // [code, i, j, level, dir]
+//   "blocks": [["St", 3, 4, 0, 0], ["S", 3, 3, 0, 0], ...],  // [code, i, j, level, dir]
+//   "theme": "desert", "sky": "sunset"                       // optional: look and off-road ground
 // }
+// Water cells are blocks too (code "~"), and splash zones ("W"); older builds reject a file with either.
 // authorTime is the car's. Older builds ignore authorTimes; an entry for another class revision is kept and
 // simply not used (authorTimeFor), like an old ghost.
 
 import { GRID, MAX_LEVEL, type Dir } from '../core/constants';
 import { BLOCK_BY_CODE, BLOCKS } from './blocks';
-import { cellsFor, type ClassAuthorTime, type Placement, type TrackData } from './track';
+import { cellsFor, THEMES, type ClassAuthorTime, type Placement, type Theme, type TrackData } from './track';
 
 export const FORMAT_ID = 'velocity-blocks-track';
 
@@ -25,6 +27,8 @@ export function exportTrack(data: TrackData): string {
       authorTime: data.authorTime ?? null,
       ...(data.authorTimes && Object.keys(data.authorTimes).length ? { authorTimes: data.authorTimes } : {}),
       blocks: data.blocks.map((b) => [BLOCKS[b.type].code, b.i, b.j, b.k, b.dir]),
+      ...(data.theme && data.theme !== 'stadium' ? { theme: data.theme } : {}),
+      ...(data.sky === 'sunset' ? { sky: data.sky } : {}),
     },
     null,
     1,
@@ -64,7 +68,16 @@ export function importTrack(text: string): TrackData {
   const author = typeof obj.author === 'string' ? obj.author.slice(0, 30) : 'Unknown';
   const at = typeof obj.authorTime === 'number' && obj.authorTime > 0 ? Math.round(obj.authorTime) : undefined;
   const authorTimes = classTimes(obj.authorTimes);
-  return { name, author, blocks, authorTime: at, ...(authorTimes ? { authorTimes } : {}) };
+  const theme = THEMES.includes(obj.theme as Theme) && obj.theme !== 'stadium' ? (obj.theme as Theme) : undefined;
+  return {
+    name,
+    author,
+    blocks,
+    authorTime: at,
+    ...(authorTimes ? { authorTimes } : {}),
+    ...(theme ? { theme } : {}),
+    ...(obj.sky === 'sunset' ? { sky: 'sunset' as const } : {}),
+  };
 }
 
 /** The valid Bike and Truck author times of an imported file: positive finite times with a revision. */

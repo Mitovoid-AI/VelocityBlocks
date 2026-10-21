@@ -9,10 +9,11 @@ import { formatTime } from '../game/race';
 import { layoutHash, newId, type SavedTrack } from '../game/storage';
 import type { Action } from '../input/input';
 import { buildTrackVisual, type TrackVisual } from '../render/trackMesh';
-import { BLOCK_LIST, type BlockType } from '../track/blocks';
+import { BLOCK_LIST, BLOCKS, type BlockType } from '../track/blocks';
 import { exportTrack, importTrack } from '../track/format';
 import { traceRoute } from '../track/route';
-import { cellsFor, Track, type Placement, type TrackData } from '../track/track';
+import { cellsFor, THEMES, Track, type Placement, type SkyKind, type Theme, type TrackData } from '../track/track';
+import { themeLook } from '../render/themes';
 import { $, downloadText, esc, pickTextFile, showScreen, toast } from '../ui/dom';
 import { authorRevealed, editorAuthorText, setAuthorHow } from '../ui/medalUi';
 import type { App, Mode } from './app';
@@ -21,6 +22,40 @@ import { customAuthorTime, withCustomAuthorTime, withoutAuthorTimes } from './au
 const DIR_NAMES = ['N', 'E', 'S', 'W'];
 
 const blankTrack = (author: string): TrackData => ({ name: 'My track', author, blocks: [] });
+
+const THEME_LABEL: Record<Theme, string> = { stadium: 'Stadium', desert: 'Desert', water: 'Water' };
+const SKY_LABEL: Record<SkyKind, string> = { day: 'Day', sunset: 'Sunset' };
+const SKIES: readonly SkyKind[] = ['day', 'sunset'];
+
+/** The Theme picker's value for a track: '<theme>-<sky>' ('stadium-day' when it has neither). */
+export function lookValue(d: Pick<TrackData, 'theme' | 'sky'>): string {
+  return `${d.theme && THEMES.includes(d.theme) ? d.theme : 'stadium'}-${d.sky === 'sunset' ? 'sunset' : 'day'}`;
+}
+
+/** The Theme picker's options: every theme by day and at sunset. */
+export function themeOptionsHtml(d: Pick<TrackData, 'theme' | 'sky'>): string {
+  const cur = lookValue(d);
+  return THEMES.flatMap((t) =>
+    SKIES.map((s) => {
+      const v = `${t}-${s}`;
+      return `<option value="${v}"${v === cur ? ' selected' : ''}>${THEME_LABEL[t]} · ${SKY_LABEL[s]}</option>`;
+    }),
+  ).join('');
+}
+
+/**
+ * The track with another theme and sky (saved in TrackData as `theme` and `sky`, absent for the Stadium by
+ * day). The Desert's sand beside the road drives differently from grass, so a change to or from it clears the
+ * author times, as a layout change does; the other changes are looks only and keep them.
+ */
+export function withLook(d: TrackData, theme: string, sky: string): TrackData {
+  const t: Theme = THEMES.includes(theme as Theme) ? (theme as Theme) : 'stadium';
+  const s: SkyKind = sky === 'sunset' ? 'sunset' : 'day';
+  const { theme: _t, sky: _s, ...rest } = d;
+  const next: TrackData = { ...rest, ...(t !== 'stadium' ? { theme: t } : {}), ...(s === 'sunset' ? { sky: s } : {}) };
+  const ground = (x: TrackData) => (x.theme === 'desert' ? 'sand' : 'grass');
+  return ground(next) === ground(d) ? next : withoutAuthorTimes(next);
+}
 
 export class EditorMode implements Mode {
   private id: string;
@@ -164,7 +199,8 @@ export class EditorMode implements Mode {
 
   private rebuild(): void {
     const world = this.app.world;
-    world.setTrack(null);
+    // The sky, light and surroundings of the track's theme (the Theme picker), around the empty grid.
+    world.setTrack(null, themeLook(this.data.theme, this.data.sky));
     // As a test drive will drive it: with Walls on all roads when that is on (enter() rebuilds, so a
     // change in Settings shows when the editor is opened again).
     this.track = new Track(this.data, { walls: this.app.store.settings.walls });
@@ -201,7 +237,8 @@ export class EditorMode implements Mode {
   }
 
   private candidate(i: number, j: number): { p: Placement; ok: boolean; reason: string } {
-    const p: Placement = { type: this.type, i, j, k: this.level, dir: this.dir };
+    // Water lies on the floor whatever level is being edited: under a bridge built on level 1, say.
+    const p: Placement = { type: this.type, i, j, k: BLOCKS[this.type].water ? 0 : this.level, dir: this.dir };
     const cells = cellsFor(p);
     if (cells.some(([ci, cj, ck]) => ci < 0 || cj < 0 || ci >= GRID || cj >= GRID || ck < 0 || ck > MAX_LEVEL))
       return { p, ok: false, reason: 'Outside the grid' };
@@ -226,7 +263,10 @@ export class EditorMode implements Mode {
     this.app.audio.click();
     // Advance the cursor along the road so tapping again keeps building.
     const nx = new Track({ name: '', author: '', blocks: [c.p] }).blocks[0].nextAnchor();
-    if (nx.k >= 0 && nx.k <= MAX_LEVEL) {
+    if (BLOCKS[c.p.type].water) {
+      // Water is no road: the cursor moves on a cell, and the level being edited stays.
+      this.hover = { i: Math.max(0, Math.min(GRID - 1, nx.i)), j: Math.max(0, Math.min(GRID - 1, nx.j)) };
+    } else if (nx.k >= 0 && nx.k <= MAX_LEVEL) {
       this.dir = nx.dir;
       if (nx.k !== this.level) {
         this.level = nx.k;
@@ -443,6 +483,23 @@ export class EditorMode implements Mode {
     this.previewKey = '';
   }
 
+  /** The Theme picker: the track's look (and, for the Desert, its off-road ground) changes at once. */
+  private setLook(theme: string, sky: string): void {
+    const next = withLook(this.data, theme, sky);
+    if (lookValue(next) === lookValue(this.data)) return;
+    this.data = next;
+    this.dirty = true;
+    this.rebuild();
+    this.saveDraft();
+    this.updateStatus();
+  }
+
+  /** The Theme picker shows the track's look (after New and Import). */
+  private syncThemePicker(): void {
+    const sel = this.screenEl?.querySelector<HTMLSelectElement>('#ed-theme');
+    if (sel) sel.value = lookValue(this.data);
+  }
+
   private doUndo(): void {
     const prev = this.undo.pop();
     if (!prev) return;
@@ -471,7 +528,10 @@ export class EditorMode implements Mode {
          <button class="btn small" data-act="validate">Autopilot check</button>
          <button class="btn small primary" data-act="test">&#9654; Test drive${vehicle === 'car' ? '' : ` (${VEHICLE_LABEL[vehicle]})`}</button>
        </div>
-       <div class="ed-palette">${palette}</div>
+       <div class="ed-palette">
+         <select id="ed-theme" class="ed-theme" aria-label="Theme" title="Theme: the look, and the ground beside the road (desert sand is slower than grass)">${themeOptionsHtml(this.data)}</select>
+         ${palette}
+       </div>
        <div class="ed-bottom">
          <button class="btn small" data-act="rot" title="Rotate (R)">&#10227; <span id="ed-dir"></span></button>
          <button class="btn small" data-act="down" title="Level down (PgDn)">&#9660;</button>
@@ -504,6 +564,7 @@ export class EditorMode implements Mode {
           this.undo = [];
           this.data = blankTrack(this.app.store.profile.name);
           ($('#ed-name', this.screenEl!) as HTMLInputElement).value = this.data.name;
+          this.syncThemePicker();
           this.rebuild();
           this.saveDraft();
           this.updateStatus();
@@ -525,6 +586,7 @@ export class EditorMode implements Mode {
             this.id = newId();
             this.data = data;
             ($('#ed-name', this.screenEl!) as HTMLInputElement).value = data.name;
+            this.syncThemePicker();
             this.frameBlocks();
             this.rebuild();
             this.saveDraft();
@@ -558,6 +620,12 @@ export class EditorMode implements Mode {
     nameInput.addEventListener('input', () => {
       this.data = { ...this.data, name: nameInput.value.trim() || 'My track' };
       this.saveDraft();
+    });
+    const themeSel = $('#ed-theme', this.screenEl) as HTMLSelectElement;
+    themeSel.addEventListener('change', () => {
+      const [theme, sky] = themeSel.value.split('-');
+      this.setLook(theme, sky);
+      themeSel.blur();
     });
     // The view turns for as long as a turn button is held, so a tap nudges it and a hold
     // goes all the way round. They act on pointerdown, like the race pills, because Android

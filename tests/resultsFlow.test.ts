@@ -67,6 +67,9 @@ function results(e: RaceEntry, finish: { time: number; previous: number | null; 
     setMode: vi.fn(),
     playRace: vi.fn(),
     startRace: vi.fn(),
+    // Web builds: nothing needs the Full Game (tests/fullGame.test.ts covers the locks).
+    entryLock: vi.fn(() => null),
+    blockLocked: vi.fn(() => false),
   };
   return {
     app,
@@ -281,6 +284,7 @@ describe('RaceMode PB ghost for Retry', () => {
         rig: { reset: vi.fn() },
         hud: { clearMessages: vi.fn(), show: vi.fn() },
         showTouch: vi.fn(),
+        blockLocked: vi.fn(() => false),
       },
       assists: vi.fn(() => ({})),
       makeGhostCar: vi.fn(),

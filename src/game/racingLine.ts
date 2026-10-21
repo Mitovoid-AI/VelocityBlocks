@@ -32,7 +32,6 @@ import {
 } from '../physics/vehicle';
 import { nearestPoint, traceRoute, type Route, type RoutePoint } from '../track/route';
 import { Track, type PlacedBlock } from '../track/track';
-import racingLines from '../track/racingLines.json';
 import { nitroFits } from './bot';
 import { quantise, RaceSession } from './race';
 
@@ -142,11 +141,16 @@ export interface RacingLineData {
   time: number;
 }
 
-/** Runs a time-sliced job to completion (tests, scripts). */
+/**
+ * Runs a time-sliced job to completion (tests, scripts). A campaign lineJob needs the precomputed lines
+ * loaded first (await loadStoredLines()): waiting for them here would never end, so it throws.
+ */
 export function runJob<T>(job: Generator<void, T>): T {
   for (;;) {
+    tableWait = false;
     const r = job.next();
     if (r.done) return r.value;
+    if (tableWait) throw new Error('runJob: await loadStoredLines() before running a campaign line job');
   }
 }
 
@@ -919,7 +923,32 @@ export interface StoredLines {
   truck?: StoredClassLines;
 }
 
-const table = racingLines as StoredLines;
+/**
+ * The precomputed lines (racingLines.json, about 240 kB) are loaded on first use, not with the game: only a
+ * player with the racing line on needs them. Until they are here storedLine() has none; lineJob waits.
+ */
+let table: StoredLines | null = null;
+let tableLoad: Promise<StoredLines | null> | null = null;
+/** A line job is waiting for the table: LineJobs.pump stops for this frame instead of spinning. */
+let tableWait = false;
+
+/** Load the precomputed lines (once; a failed load is tried again on the next call). Resolves null on failure. */
+export function loadStoredLines(): Promise<StoredLines | null> {
+  if (table) return Promise.resolve(table);
+  return (tableLoad ??= import('../track/racingLines.json').then(
+    (m) => (table = (m.default ?? m) as StoredLines),
+    (err: unknown) => {
+      console.warn('Racing lines did not load', err);
+      tableLoad = null;
+      return null;
+    },
+  ));
+}
+
+/** The precomputed lines are loaded (storedLine can answer). */
+export function storedLinesLoaded(): boolean {
+  return table !== null;
+}
 
 /** A class's section of a lines table, or null when it is missing or for another revision. */
 export function classLines(t: StoredLines, vehicle: VehicleClass): Record<string, StoredLine> | null {
@@ -930,10 +959,10 @@ export function classLines(t: StoredLines, vehicle: VehicleClass): Record<string
 
 /**
  * The precomputed line for a campaign track id and vehicle class, or null when there is none for this
- * PHYSICS_VERSION and the class's VEHICLE_REV.
+ * PHYSICS_VERSION and the class's VEHICLE_REV (or the table is not loaded: loadStoredLines).
  */
 export function storedLine(id: string, vehicle: VehicleClass = 'car'): StoredLine | null {
-  if (table.physics !== PHYSICS_VERSION) return null;
+  if (!table || table.physics !== PHYSICS_VERSION) return null;
   return classLines(table, vehicle)?.[id] ?? null;
 }
 
@@ -1000,6 +1029,16 @@ export function parseEntryKey(key: string): { base: string; vehicle: VehicleClas
 export function* lineJob(key: string, track: Track): Generator<void, RacingLineData | null> {
   const { base, vehicle } = parseEntryKey(key);
   const open = track.walls ? new Track(track.data) : track;
+  if (base.startsWith('c:') && !table) {
+    // The precomputed lines load on first use: wait for them (a failed load falls back to the pace job).
+    let settled = false;
+    void loadStoredLines().finally(() => (settled = true));
+    while (!settled) {
+      tableWait = true;
+      yield;
+    }
+    tableWait = false;
+  }
   const st = base.startsWith('c:') ? storedLine(base.slice(2), vehicle) : null;
   if (st) {
     const d = yield* decodeLine(open, st);
@@ -1174,6 +1213,7 @@ export class LineJobs {
     while (this.queue.length) {
       const job = this.queue[0];
       let r: IteratorResult<void, RacingLineData | null>;
+      tableWait = false;
       try {
         r = job.it.next();
       } catch (err) {
@@ -1185,6 +1225,8 @@ export class LineJobs {
         this.store(job.key, r.value);
         for (const cb of job.waiters) cb(r.value);
       }
+      // A job waiting for the precomputed lines to load: nothing to do until a later frame.
+      if (!r.done && tableWait) break;
       if (this.now() >= end) break;
     }
   }

@@ -4,18 +4,14 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 import { cloudTexture } from './textures';
+import { STADIUM_LOOK, type SkyPalette } from './themes';
 
 /** Sun position relative to the point it lights; the shadow camera sits there. */
 export const SUN_OFFSET = new THREE.Vector3(-120, 220, 90);
 export const SUN_DIR = SUN_OFFSET.clone().normalize();
 
-/** Linear colours (THREE.Color converts the sRGB hex). */
-export const SKY = {
-  zenith: new THREE.Color('#1f63d8'),
-  horizon: new THREE.Color('#cfe6ff'),
-  stands: new THREE.Color('#30353d'),
-  ground: new THREE.Color('#3f6a32'),
-};
+/** Linear colours (THREE.Color converts the sRGB hex): the Stadium's daylight sky (themes.ts has the others). */
+export const SKY: SkyPalette = STADIUM_LOOK.sky;
 
 export const FOG_NEAR = 400;
 export const FOG_FAR = 2600;
@@ -24,20 +20,28 @@ export const FOG_FAR = 2600;
  * Fog towards the horizon colour. three applies fog after tone mapping and the sRGB conversion, so
  * a fully fogged hill is exactly the sky's horizon colour (the sky shader is colour-managed too).
  */
-export function makeFog(): THREE.Fog {
-  return new THREE.Fog(SKY.horizon.getHex(), FOG_NEAR, FOG_FAR);
+export function makeFog(p: SkyPalette = SKY): THREE.Fog {
+  return new THREE.Fog(p.horizon.getHex(), FOG_NEAR, FOG_FAR);
 }
 
 /** Clear colour behind the dome (only ever visible if the dome is culled). */
-export function makeBackground(): THREE.Color {
-  return SKY.horizon.clone();
+export function makeBackground(p: SkyPalette = SKY): THREE.Color {
+  return p.horizon.clone();
+}
+
+/** Where the sun glow is drawn on the dome: the light's direction, lowered by the palette's glowDrop (a sunset). */
+export function glowDirFor(p: SkyPalette): THREE.Vector3 {
+  if (!p.glowDrop) return SUN_DIR.clone();
+  const el = Math.max(0.035, Math.asin(SUN_DIR.y) - p.glowDrop);
+  const h = Math.hypot(SUN_DIR.x, SUN_DIR.z) || 1;
+  return new THREE.Vector3((SUN_DIR.x / h) * Math.cos(el), Math.sin(el), (SUN_DIR.z / h) * Math.cos(el));
 }
 
 /** The sky dome's render order: after every other opaque object (see skyMesh). */
 export const SKY_RENDER_ORDER = 1000;
 
 /** Gradient dome with a sun glow and a thin layer of cumulus (one texture fetch). */
-export function skyMesh(): THREE.Mesh {
+export function skyMesh(p: SkyPalette = SKY): THREE.Mesh {
   const geo = new THREE.SphereGeometry(3500, 32, 16);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
@@ -45,14 +49,17 @@ export function skyMesh(): THREE.Mesh {
     fog: false,
     toneMapped: false,
     uniforms: {
-      top: { value: SKY.zenith },
-      horizon: { value: SKY.horizon },
-      sunDir: { value: SUN_DIR },
+      top: { value: p.zenith },
+      horizon: { value: p.horizon },
+      sunDir: { value: p.glowDrop ? glowDirFor(p) : SUN_DIR },
       clouds: { value: cloudTexture() },
-      cloudAmount: { value: 0.6 },
+      cloudAmount: { value: p.clouds },
+      cloudColor: { value: p.cloudColor },
+      glowColor: { value: p.glow },
     },
     vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position.z = gl_Position.w; }`,
-    fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform sampler2D clouds; uniform float cloudAmount; varying vec3 vDir;
+    fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform sampler2D clouds; uniform float cloudAmount;
+      uniform vec3 cloudColor; uniform vec3 glowColor; varying vec3 vDir;
       void main(){
         vec3 d = normalize(vDir);
         float h = clamp(d.y, 0.0, 1.0);
@@ -61,8 +68,8 @@ export function skyMesh(): THREE.Mesh {
         // A flat cloud layer projected onto the dome, thinning out towards the horizon.
         vec2 uv = d.xz / (h + 0.15) * 0.6;
         float a = texture2D(clouds, uv).r * smoothstep(0.03, 0.3, h) * cloudAmount;
-        c = mix(c, vec3(0.93, 0.95, 0.98) + vec3(0.07, 0.05, 0.0) * s, clamp(a, 0.0, 1.0));
-        c += vec3(1.0, 0.92, 0.75) * (pow(s, 600.0) * 2.0 + pow(s, 12.0) * 0.18);
+        c = mix(c, cloudColor + vec3(0.07, 0.05, 0.0) * s, clamp(a, 0.0, 1.0));
+        c += glowColor * (pow(s, 600.0) * 2.0 + pow(s, 12.0) * 0.18);
         gl_FragColor = vec4(c, 1.0);
         #include <colorspace_fragment>
       }`,
@@ -76,6 +83,17 @@ export function skyMesh(): THREE.Mesh {
   return sky;
 }
 
+/** Repaint a dome from skyMesh with another palette (a track of another theme). */
+export function applySkyPalette(sky: THREE.Mesh, p: SkyPalette): void {
+  const u = (sky.material as THREE.ShaderMaterial).uniforms;
+  u.top.value = p.zenith;
+  u.horizon.value = p.horizon;
+  u.sunDir.value = p.glowDrop ? glowDirFor(p) : SUN_DIR;
+  u.cloudAmount.value = p.clouds;
+  u.cloudColor.value = p.cloudColor;
+  u.glowColor.value = p.glow;
+}
+
 /**
  * What metallic paint, glass and chrome reflect: a paler version of the sky gradient, a dark band
  * of stands up to about 15 degrees, the ground below and four floodlight strips (HDR) for crisp
@@ -83,7 +101,7 @@ export function skyMesh(): THREE.Mesh {
  * High. No sun disc: the directional light already makes that highlight, and an HDR sun here would
  * leak light into the shadows.
  */
-export function buildEnvScene(): THREE.Scene {
+export function buildEnvScene(p: SkyPalette = SKY): THREE.Scene {
   const scene = new THREE.Scene();
   const geo = new THREE.SphereGeometry(50, 48, 24);
   const pos = geo.attributes.position;
@@ -91,9 +109,9 @@ export function buildEnvScene(): THREE.Scene {
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i) / 50;
-    if (y >= 0.25) c.copy(SKY.horizon).lerp(SKY.zenith, 0.6 * Math.pow((y - 0.25) / 0.75, 0.55));
-    else if (y >= 0) c.copy(SKY.stands).lerp(SKY.horizon, Math.pow(y / 0.25, 2));
-    else c.copy(SKY.stands).lerp(SKY.ground, Math.min(1, -y / 0.25));
+    if (y >= 0.25) c.copy(p.horizon).lerp(p.zenith, 0.6 * Math.pow((y - 0.25) / 0.75, 0.55));
+    else if (y >= 0) c.copy(p.stands).lerp(p.horizon, Math.pow(y / 0.25, 2));
+    else c.copy(p.stands).lerp(p.ground, Math.min(1, -y / 0.25));
     col[i * 3] = c.r;
     col[i * 3 + 1] = c.g;
     col[i * 3 + 2] = c.b;

@@ -1,9 +1,10 @@
 // A single time-attack run: countdown, timing at the fixed tick rate, checkpoints in any
-// order, flying respawn at the last checkpoint (also automatic after 3 s flipped), the nitro's
+// order, flying respawn at the last checkpoint (also automatic after 3 s flipped, or after a fall
+// into water), the nitro's
 // race rules (a press in the countdown fires at GO; a respawn never refills it), finish
 // validation and ghost recording.
 
-import { DT, TICK_HZ, WALL_OFF } from '../core/constants';
+import { DT, TICK_HZ, WALL_OFF, WATER_SINK_Y } from '../core/constants';
 import {
   cloneCar,
   createCar,
@@ -45,6 +46,11 @@ export function nextFlipTicks(ticks: number, upY: number, speed: number): number
   // Leaning (against a barrier, on a block edge): only stuck if it has stopped.
   return speed < TILT_STUCK_SPEED ? ticks + 1 : ticks;
 }
+/**
+ * Ticks (0.3 s) a car that fell into water sinks before it is respawned automatically: long enough to drop
+ * out of sight under the surface, short enough not to feel like a hang. The clock keeps running, as for a flip.
+ */
+export const SINK_TICKS = 30;
 const GATE_S = 16;
 const FINISH_BRAKE: Controls = { steer: 0, gas: 0, brake: 1 };
 /** Racing ticks a countdown nitro press waits for the brake to lift (0.5 s), and the pedal travel that counts as up (stepCar's). */
@@ -60,7 +66,10 @@ export type RaceEvent =
   | { type: 'finish'; time: number }
   | { type: 'missing'; remaining: number }
   | { type: 'pad'; kind: 'boost' | 'turbo' }
-  | { type: 'respawn'; auto: boolean }
+  /** Automatic (`auto`: flipped for 3 s, or `water`: fell into water) or asked for. */
+  | { type: 'respawn'; auto: boolean; water?: boolean }
+  /** The car hit the water (a respawn follows SINK_TICKS later); where, for the splash. */
+  | { type: 'splash'; x: number; y: number; z: number }
   | { type: 'impact'; speed: number }
   /** The nitro fired on this tick. */
   | { type: 'nitro' }
@@ -91,6 +100,8 @@ export class RaceSession {
   respawns = 0;
   /** Consecutive racing ticks spent flipped (nextFlipTicks); the HUD reads it for the warning. */
   flipTicks = 0;
+  /** Racing ticks the car has been under water (a respawn at SINK_TICKS). */
+  sinkTicks = 0;
   private checkpointState: CarState | null = null;
   private lastPad: PlacedBlock | null = null;
   private readonly recorder = new GhostRecorder();
@@ -125,6 +136,7 @@ export class RaceSession {
     this.finishTime = null;
     this.respawns = 0;
     this.flipTicks = 0;
+    this.sinkTicks = 0;
     this.checkpointState = null;
     this.lastPad = null;
     this.nitroArmed = false;
@@ -148,13 +160,18 @@ export class RaceSession {
     return this.checkpointState !== null;
   }
 
-  /** Back to the last checkpoint, or a full restart if none was taken. `auto` marks a flip respawn. */
-  respawn(auto = false): RaceEvent[] {
+  /**
+   * Back to the last checkpoint, or a full restart if none was taken. `auto` marks an automatic respawn (a
+   * flip, or with `water` a fall into water).
+   */
+  respawn(auto = false, water = false): RaceEvent[] {
     if (this.phase === 'finished') return [];
     this.flipTicks = 0;
+    this.sinkTicks = 0;
+    const ev: RaceEvent = water ? { type: 'respawn', auto, water } : { type: 'respawn', auto };
     if (!this.checkpointState) {
       this.restart();
-      return [{ type: 'respawn', auto }];
+      return [ev];
     }
     const was = this.car;
     this.car = cloneCar(this.checkpointState);
@@ -164,7 +181,7 @@ export class RaceSession {
     this.car.nitroCooldown = was.nitroTime > 0 ? NITRO_RECHARGE : was.nitroCooldown;
     this.lastPad = null;
     this.respawns++;
-    return [{ type: 'respawn', auto }];
+    return [ev];
   }
 
   step(input: Controls): RaceEvent[] {
@@ -213,7 +230,19 @@ export class RaceSession {
     this.checkPads(events);
     // After the gates, so a checkpoint crossed on this tick is the respawn point and a finish stops it.
     this.checkFlip(events);
+    this.checkWater(events);
     return events;
+  }
+
+  /** A car whose centre sank below WATER_SINK_Y over water fell in: a splash, then a respawn SINK_TICKS later. */
+  private checkWater(events: RaceEvent[]): void {
+    const p = this.car.pos;
+    if (this.phase !== 'racing' || !this.track.hasWater || p.y >= WATER_SINK_Y || !this.track.waterAt(p.x, p.z)) {
+      this.sinkTicks = 0;
+      return;
+    }
+    if (this.sinkTicks === 0) events.push({ type: 'splash', x: p.x, y: 0, z: p.z });
+    if (++this.sinkTicks >= SINK_TICKS) events.push(...this.respawn(true, true));
   }
 
   private checkGates(prev: { x: number; y: number; z: number }, events: RaceEvent[]): void {

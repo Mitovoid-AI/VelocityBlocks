@@ -23,19 +23,66 @@ export function prefersReducedMotion(): boolean {
 
 let touchActAt = -1e9;
 
+export type ActHandlers = Record<string, (el: HTMLElement) => void>;
+
 /** Replace the current screen. Handlers map `data-act` values to callbacks. */
-export function showScreen(html: string, cls: string, handlers: Record<string, (el: HTMLElement) => void>): HTMLElement {
+export function showScreen(html: string, cls: string, handlers: ActHandlers): HTMLElement {
   const host = $('#screens');
   host.innerHTML = '';
   const s = document.createElement('div');
   s.className = `screen ${cls}`;
   s.innerHTML = html;
   host.appendChild(s);
+  bindActs(s, handlers);
+  focusFirst(s);
+  return s;
+}
+
+/**
+ * A pop-up panel over the current screen (`.popup` in #screens, after the screen). Its `data-act` buttons
+ * work like a screen's (second-finger taps too). It closes with closePopup(), and goes with the screen
+ * when the screen is replaced. Android Back presses its `data-act="back"` button (App.back). One at a time.
+ */
+export function showPopup(html: string, cls: string, handlers: ActHandlers): HTMLElement {
+  closePopup();
+  const p = document.createElement('div');
+  p.className = `popup ${cls}`;
+  p.setAttribute('role', 'dialog');
+  p.setAttribute('aria-modal', 'true');
+  p.innerHTML = html;
+  $('#screens').appendChild(p);
+  bindActs(p, handlers);
+  focusFirst(p);
+  return p;
+}
+
+export function closePopup(): void {
+  document.querySelectorAll('#screens > .popup').forEach((p) => p.remove());
+}
+
+export function popupOpen(): boolean {
+  return !!document.querySelector('#screens > .popup');
+}
+
+/** Focus helps keyboard users; after a touch tap it would only draw a focus ring. */
+function focusFirst(s: HTMLElement): void {
+  if (performance.now() - touchActAt > 1000) {
+    const first = s.querySelector<HTMLElement>('.btn.primary, .btn, .card');
+    first?.focus({ preventScroll: true });
+  }
+}
+
+/** Route taps and clicks on `[data-act]` elements inside `s` to `handlers`. */
+function bindActs(s: HTMLElement, handlers: ActHandlers): void {
   const actTarget = (n: EventTarget | null): HTMLElement | null => {
     const t = n instanceof Element ? n.closest<HTMLElement>('[data-act]') : null;
-    return t && s.contains(t) && !(t as HTMLButtonElement).disabled ? t : null;
+    return t && s.isConnected && s.contains(t) && !(t as HTMLButtonElement).disabled ? t : null;
   };
   const run = (t: HTMLElement | null) => {
+    // A screen that has been replaced never acts. A tap that began on it before a re-render (a set tab,
+    // say) can still deliver its click to the old, detached element (Chrome sends a tap's click to where
+    // its pointerdown landed), and its handlers would act on what that screen showed (A01, not D01).
+    if (!s.isConnected) return;
     const fn = t && handlers[t.dataset.act!];
     if (fn) fn(t);
   };
@@ -77,12 +124,6 @@ export function showScreen(html: string, cls: string, handlers: Record<string, (
     if (e.isTrusted && performance.now() - touchActAt < 600) return;
     run(actTarget(e.target));
   });
-  // Focus helps keyboard users; after a touch tap it would only draw a focus ring.
-  if (performance.now() - touchActAt > 1000) {
-    const first = s.querySelector<HTMLElement>('.btn.primary, .btn, .card');
-    first?.focus({ preventScroll: true });
-  }
-  return s;
 }
 
 export function clearScreen(): void {

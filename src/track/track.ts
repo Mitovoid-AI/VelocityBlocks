@@ -11,6 +11,7 @@ import {
   STADIUM_PAD,
   VEHICLE_REV,
   WALL_H,
+  WATER_BED,
   WALL_OFF,
   wrapDir,
   type Dir,
@@ -30,10 +31,26 @@ export interface Placement {
   dir: Dir;
 }
 
+/**
+ * Look and ground of a track: the stadium (lawn), the desert (sand off the road, slower and looser than grass)
+ * or the coast (lawn, with water blocks for lakes and rivers). Physics reads it for the off-road surface.
+ */
+export type Theme = 'stadium' | 'desert' | 'water';
+export const THEMES: readonly Theme[] = ['stadium', 'desert', 'water'];
+/** Sky over a track: daylight, or a low orange sun (any theme; the desert set uses it). Looks only. */
+export type SkyKind = 'day' | 'sunset';
+
+/** What a wheel stands on: the road, a splash zone on the road, or the ground beside it (grass, sand, water). */
+export type Surface = 'road' | 'splash' | 'grass' | 'sand' | 'water';
+
 export interface TrackData {
   name: string;
   author: string;
   blocks: Placement[];
+  /** Default 'stadium'. */
+  theme?: Theme;
+  /** Default 'day'. */
+  sky?: SkyKind;
   /** The car's author time in milliseconds when known (set by a walls-off test drive). */
   authorTime?: number;
   /** The other classes' author times, each with the VEHICLE_REV it was driven with (a retune retires it). */
@@ -168,6 +185,8 @@ export interface SurfaceHit {
   grip: number;
   road: boolean;
   block: PlacedBlock | null;
+  /** The surface kind (absent: road when `road`, else grass). */
+  surf?: Surface;
 }
 
 export interface WallHit {
@@ -196,6 +215,17 @@ export interface Column {
 }
 
 const GRASS_GRIP = 0.55;
+/** Desert sand: a little less grip than grass (and more drag, physics/vehicle.ts). */
+export const SAND_GRIP = 0.5;
+/** Road under a splash zone's shallow water. */
+export const SPLASH_GRIP = 0.85;
+const GROUND: Record<'stadium' | 'desert' | 'water', SurfaceHit> = {
+  stadium: { y: 0, nx: 0, ny: 1, nz: 0, grip: GRASS_GRIP, road: false, block: null },
+  desert: { y: 0, nx: 0, ny: 1, nz: 0, grip: SAND_GRIP, road: false, block: null, surf: 'sand' },
+  water: { y: 0, nx: 0, ny: 1, nz: 0, grip: GRASS_GRIP, road: false, block: null },
+};
+/** The bed of a water cell: far enough down that a car dropping in sinks out of sight before it lands. */
+const WATER_HIT: SurfaceHit = { y: WATER_BED, nx: 0, ny: 1, nz: 0, grip: 0.3, road: false, block: null, surf: 'water' };
 /**
  * Walls on all roads: the face of an added (low) barrier as a hull meets it from the grass, the deck slab's
  * outer edge plus the 0.2 m hull-inside-bumper allowance the start back wall uses.
@@ -240,26 +270,46 @@ export class Track {
   private readonly colIndex = new Map<number, Column[]>();
   /** Settings > "Walls on all roads": barriers along every road edge, not only on raised decks. */
   readonly walls: boolean;
+  readonly theme: Theme;
+  readonly sky: SkyKind;
+  /** Cells (i, j) of water blocks: no ground there (surfaceAt), and a car that drops in is respawned. */
+  private readonly water = new Set<number>();
+  /** The water blocks (drawn as lakes; never part of the road, the cell index or the route). */
+  readonly waterBlocks: PlacedBlock[] = [];
+  private readonly ground: SurfaceHit;
 
   constructor(
     readonly data: TrackData,
     opts: { walls?: boolean } = {},
   ) {
     this.walls = opts.walls === true;
+    this.theme = data.theme && GROUND[data.theme] ? data.theme : 'stadium';
+    this.sky = data.sky === 'sunset' ? 'sunset' : 'day';
+    this.ground = GROUND[this.theme];
     this.blocks = data.blocks.map((p, n) => new PlacedBlock(p, n));
     let minI = Infinity, minJ = Infinity, maxI = -Infinity, maxJ = -Infinity;
     let cps = 0;
     let start: PlacedBlock | null = null;
     for (const b of this.blocks) {
+      // Water lies on the floor only: a water block above level 0 (an old editor draft, a hand-made file)
+      // is inert. It used to flood the floor cell under it, and nothing showed it there.
+      if (b.def.water && b.p.k !== 0) continue;
       for (const [i, j] of b.cells()) {
         const k = key(i, j);
-        let list = this.index.get(k);
-        if (!list) this.index.set(k, (list = []));
-        if (!list.includes(b)) list.push(b);
+        if (b.def.water) this.water.add(k);
+        else {
+          let list = this.index.get(k);
+          if (!list) this.index.set(k, (list = []));
+          if (!list.includes(b)) list.push(b);
+        }
         minI = Math.min(minI, i);
         minJ = Math.min(minJ, j);
         maxI = Math.max(maxI, i + 1);
         maxJ = Math.max(maxJ, j + 1);
+      }
+      if (b.def.water) {
+        this.waterBlocks.push(b);
+        continue;
       }
       const g = b.def.gate;
       if (g) {
@@ -286,6 +336,7 @@ export class Track {
 
   private buildColumns(): void {
     for (const b of this.blocks) {
+      if (b.def.water) continue;
       if (b.def.gate) {
         const y0 = b.baseY + b.def.height(16);
         for (const side of [-1, 1]) {
@@ -400,7 +451,18 @@ export class Track {
       }
     }
     if (best) return best;
-    return { y: 0, nx: 0, ny: 1, nz: 0, grip: GRASS_GRIP, road: false, block: null };
+    if (this.water.size && this.water.has(key(Math.floor(x / CELL), Math.floor(z / CELL)))) return { ...WATER_HIT };
+    return { ...this.ground };
+  }
+
+  /** Is (x, z) over a water block (no ground, see surfaceAt)? */
+  waterAt(x: number, z: number): boolean {
+    return this.water.size > 0 && this.water.has(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+  }
+
+  /** Does the track have any water? */
+  get hasWater(): boolean {
+    return this.water.size > 0;
   }
 
   /**
@@ -551,6 +613,7 @@ function surfaceFromHit(blk: PlacedBlock, hit: LocalHit, sy: number): SurfaceHit
   const nx = -hit.slope * t.x;
   const nz = -hit.slope * t.z;
   const inv = 1 / Math.sqrt(nx * nx + 1 + nz * nz);
+  if (blk.def.splash) return { y: sy, nx: nx * inv, ny: inv, nz: nz * inv, grip: SPLASH_GRIP, road: true, block: blk, surf: 'splash' };
   return { y: sy, nx: nx * inv, ny: inv, nz: nz * inv, grip: 1, road: true, block: blk };
 }
 

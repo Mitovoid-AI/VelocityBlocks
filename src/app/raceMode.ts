@@ -257,6 +257,9 @@ export class RaceMode implements Mode {
   }
 
   restart(): void {
+    // Retry, Restart and the restart key replay this entry: if it needs the Full Game now (refunded, or the
+    // debug builds' dev switch), the Full Game screen opens instead (App.blockLocked leaves this mode).
+    if (this.app.blockLocked(this.entry)) return;
     if (this.resultsShown || this.race.phase === 'finished') {
       // Retry after a finish (also a Restart in the 1.4 s before the results card): that run may have set
       // a new PB, so race its ghost and splits. A PB ghost storage could not keep is raced from memory.
@@ -696,6 +699,12 @@ export class RaceMode implements Mode {
           audio.nitroReady();
           hud.nitroPop();
           break;
+        case 'splash':
+          // Into the water: the splash itself is drawn by World (it watches the followed car).
+          audio.splash();
+          rig.shake = Math.max(rig.shake, 0.3);
+          if (navigator.vibrate) navigator.vibrate(40);
+          break;
         case 'impact':
           audio.impact(e.speed);
           rig.shake = Math.max(rig.shake, Math.min(0.6, e.speed / 40));
@@ -791,6 +800,7 @@ export class RaceMode implements Mode {
       note: entry.fromEditor && entry.walls ? AUTHOR_WALLS_NOTE : '',
       respawns: this.race.respawns,
       hasNext: !!next,
+      nextLocked: !!next && !!app.entryLock(next),
       fromEditor: !!entry.fromEditor,
     });
     const animate = !prefersReducedMotion();

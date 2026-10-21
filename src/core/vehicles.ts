@@ -11,6 +11,12 @@ export const VEHICLE_LABEL: Record<VehicleClass, string> = { car: 'Car', bike: '
 
 export const DEFAULT_VEHICLE: VehicleClass = 'car';
 
+/**
+ * Classes that need the Full Game (the Google Play in-app purchase, see app/fullGame.ts). The Car is
+ * always free and is what a locked class falls back to. Web and portal builds ignore this (all unlocked).
+ */
+export const PREMIUM_VEHICLES: ReadonlySet<VehicleClass> = new Set<VehicleClass>(['bike', 'truck']);
+
 export function isVehicleClass(v: unknown): v is VehicleClass {
   return typeof v === 'string' && (VEHICLE_CLASSES as readonly string[]).includes(v);
 }

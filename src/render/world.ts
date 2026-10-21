@@ -1,12 +1,14 @@
 // Renderer, sky, lighting, stadium surroundings and the current track's meshes.
 
 import * as THREE from 'three';
+import { WATER_SINK_Y } from '../core/constants';
 import { isTouchDevice } from '../input/input';
 import type { Track } from '../track/track';
 import { CAR_FX } from './carView';
 import type { Post } from './post';
 import { pixelRatioFor, QUALITY, type Quality } from './quality';
 import {
+  applySkyPalette,
   buildEnvScene,
   ENV_LIGHT,
   makeBackground,
@@ -19,7 +21,9 @@ import {
 } from './sky';
 import { buildStadium, type Extents, type Stadium } from './stadium';
 import { disposeMaterial, setAnisotropy } from './texUtil';
+import { STADIUM_LOOK, themeLook, type ThemeLook } from './themes';
 import { buildTrackVisual, type TrackVisual } from './trackMesh';
+import { WATER_TIME } from './water';
 
 export type { Quality } from './quality';
 
@@ -38,6 +42,13 @@ export class World {
   readonly camera = new THREE.PerspectiveCamera(70, 1, 0.3, 4000);
   readonly sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
   private readonly hemi = new THREE.HemisphereLight(0xcfe6ff, 0x4a7a3a, HEMI_ALONE);
+  private readonly sky: THREE.Mesh;
+  /** The theme and sky on show (track.ts Theme, SkyKind): the editor's empty stadium is the Stadium by day. */
+  private look: ThemeLook = STADIUM_LOOK;
+  /** The look the environment was baked for: another look bakes again. */
+  private envLook = STADIUM_LOOK.key;
+  /** Car position last frame, over water and above it (a splash when it drops in). */
+  private wasDry = true;
   private stadium: Stadium | null = null;
   private stadiumKey = '';
   private extents: Extents = EDITOR_EXTENTS;
@@ -63,7 +74,7 @@ export class World {
   private post: Post | null = null;
   private postLoading = false;
   private readonly fps: FpsOverlay | null = null;
-  private readonly look = new THREE.Vector3();
+  private readonly lookDir = new THREE.Vector3();
   /** Frame count when the environment was last baked: the next frame recompiles the env-lit programs. */
   private bakedAt = -1;
   private settle: (() => void) | null = null;
@@ -99,7 +110,8 @@ export class World {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.6;
     this.scene.add(this.sun, this.sun.target);
-    this.scene.add(skyMesh());
+    this.sky = skyMesh();
+    this.scene.add(this.sky);
     // three re-creates its GL state on a restored context, but render-target contents (the baked
     // environment) are gone: fall back to the hemisphere light and bake again.
     canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
@@ -135,6 +147,8 @@ export class World {
     this.syncPost();
     // Trees, stand rows and halos are per tier.
     if (this.stadium) this.placeStadium(this.extents);
+    // Water is per tier too (one ripple layer and no glint on Low).
+    if (this.track && this.track.hasWater) this.buildTrack(this.track);
     // Low draws the road with the cheap shader.
     if (this.track && this.trackCheap !== p.cheapGround) this.buildTrack(this.track);
     this.renderScale = null;
@@ -178,12 +192,43 @@ export class World {
     this.post?.setSize(w, h, this.renderer.getPixelRatio());
   }
 
-  setTrack(track: Track | null): void {
+  /**
+   * `look` is for no track: the editor calls this with null on every edit and passes the look of the track
+   * being edited (its Theme picker); without one the empty stadium is the Stadium by day.
+   */
+  setTrack(track: Track | null, look?: ThemeLook): void {
     this.track = track;
-    // The editor calls this with null on every edit: the stadium is cached by extents and tier.
+    this.setLook(track ? themeLook(track.theme, track.sky) : (look ?? STADIUM_LOOK));
+    // The stadium is cached by extents, tier and look.
     this.placeStadium(track ? track.extents() : EDITOR_EXTENTS);
     CAR_FX.ground = track ? (x, y, z) => track.surfaceAt(x, y, z, 0.2) : null;
     this.buildTrack(track);
+  }
+
+  /**
+   * Sky, fog, lights and the environment bake for a theme's look (themes.ts). The Stadium by day is the
+   * original look; a change re-bakes the environment (where the tier has one) a moment later.
+   */
+  private setLook(look: ThemeLook): void {
+    if (look === this.look) return;
+    this.look = look;
+    applySkyPalette(this.sky, look.sky);
+    (this.scene.fog as THREE.Fog).color.copy(makeFog(look.sky).color);
+    this.scene.background = makeBackground(look.sky);
+    this.hemi.color.copy(look.hemiSky);
+    this.hemi.groundColor.copy(look.hemiGround);
+    this.sun.color.copy(look.sun);
+    this.sun.intensity = look.sunIntensity;
+    if (look.key !== this.envLook && this.envSize) {
+      // Forget the bake so requestEnv bakes this look's sky (Low has none and bakes nothing).
+      this.envSize = 0;
+      this.requestEnv(this.frames ? ENV_DEBOUNCE_MS : 0);
+    }
+  }
+
+  /** The look on show (theme and sky). */
+  get currentLook(): ThemeLook {
+    return this.look;
   }
 
   private buildTrack(track: Track | null): void {
@@ -194,7 +239,7 @@ export class World {
     }
     if (!track) return;
     this.trackCheap = QUALITY[this.quality].cheapGround;
-    this.trackVisual = buildTrackVisual(track, { cheap: this.trackCheap });
+    this.trackVisual = buildTrackVisual(track, { cheap: this.trackCheap, look: this.look });
     markEnvLit(this.trackVisual.group);
     this.scene.add(this.trackVisual.group);
     this.needWarm = true;
@@ -202,13 +247,14 @@ export class World {
 
   private placeStadium(e: Extents): void {
     this.extents = e;
-    const key = `${e.x0},${e.z0},${e.x1},${e.z1},${this.quality}`;
+    const key = `${e.x0},${e.z0},${e.x1},${e.z1},${this.quality},${this.look.key}`;
     if (key === this.stadiumKey) return;
     if (this.stadium) {
       this.scene.remove(this.stadium.group);
       this.stadium.dispose();
     }
-    this.stadium = buildStadium(e, QUALITY[this.quality]);
+    const [theme, sky] = this.look.key.split('-') as [Track['theme'], Track['sky']];
+    this.stadium = buildStadium(e, QUALITY[this.quality], theme, sky);
     markEnvLit(this.stadium.group);
     this.stadiumKey = key;
     this.scene.add(this.stadium.group);
@@ -220,12 +266,26 @@ export class World {
    * shadow texels so edges don't crawl. With shadows off the sun just follows the car.
    */
   focusShadow(x: number, y: number, z: number): void {
-    this.camera.getWorldDirection(this.look);
-    const t = shadowFocus(this.sun.target.position, x, y, z, this.look.x, this.look.z, QUALITY[this.quality]);
+    this.camera.getWorldDirection(this.lookDir);
+    const t = shadowFocus(this.sun.target.position, x, y, z, this.lookDir.x, this.lookDir.z, QUALITY[this.quality]);
     this.sun.position.copy(t).add(SUN_OFFSET);
+    this.watchWater(x, y, z);
+  }
+
+  /**
+   * The followed car (focusShadow's point) dropping into water: a splash where it went in. Racing, replays
+   * and the menu's lap all follow the car with focusShadow, so they all get it, with no race events needed.
+   */
+  private watchWater(x: number, y: number, z: number): void {
+    const t = this.track;
+    if (!t || !t.hasWater || !this.trackVisual) return;
+    const wet = y < WATER_SINK_Y + 0.6 && t.waterAt(x, z);
+    if (wet && this.wasDry) this.trackVisual.splash?.(x, z);
+    this.wasDry = !wet;
   }
 
   update(dt: number): void {
+    WATER_TIME.value = (WATER_TIME.value + dt) % 3600;
     this.trackVisual?.update(dt);
   }
 
@@ -275,7 +335,8 @@ export class World {
       return;
     }
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const env = buildEnvScene();
+    const env = buildEnvScene(this.look.sky);
+    this.envLook = this.look.key;
     const rt = pmrem.fromScene(env, 0, 0.1, 100, { size });
     disposeTree(env);
     pmrem.dispose();

@@ -13,6 +13,7 @@ import { $, esc, pickImageFile, showScreen, toast } from '../ui/dom';
 import { PHOTO_MAX_FILE_BYTES, squarePhoto } from '../ui/photo';
 import '../ui/profile.css';
 import type { App } from './app';
+import { effectiveModel, effectiveVehicle, fullGame, modelLocked, vehicleLocked } from './fullGame';
 import { showTiltScreen } from './tiltScreen';
 import { bindTiltControls, tiltSliderHtml, tiltValHtml } from './tiltUi';
 
@@ -52,18 +53,29 @@ const nameValue = (p: Profile): string => (p.name === DEFAULT_NAME ? '' : p.name
 
 const bodyInfo = (p: Profile) => CAR_BODIES.find((b) => b.id === p.carBody) ?? CAR_BODIES[0];
 
-/** The realistic model picked for a class, if any (a stale id reads as Classic). */
-const modelOf = (p: Profile, cls: VehicleClass) => {
-  const id = p.models?.[cls];
+/**
+ * The realistic model drawn for a class, if any: a stale id reads as Classic, and so does a model that
+ * needs the Full Game (the profile keeps it for when it is bought).
+ */
+const modelOf = (p: Profile, cls: VehicleClass, unlocked = fullGame().unlocked) => {
+  const id = effectiveModel(p, cls, unlocked);
   return isModelId(id) && vehicleModel(id).cls === cls ? vehicleModel(id) : null;
 };
 
+/** The class shown and raced: the profile's, or the Car while that class needs the Full Game. */
+const classOf = (p: Profile, unlocked = fullGame().unlocked): VehicleClass =>
+  isVehicleClass(p.vehicle) ? effectiveVehicle(p, unlocked) : 'car';
+
 /** What the home card says under the name: the realistic model, the car's body style, or the Bike / Truck. */
 const vehicleName = (p: Profile): string => {
-  const m = isVehicleClass(p.vehicle) ? modelOf(p, p.vehicle) : null;
+  const cls = classOf(p);
+  const m = modelOf(p, cls);
   if (m) return m.name;
-  return p.vehicle && p.vehicle !== 'car' ? VEHICLE_LABEL[p.vehicle] ?? bodyInfo(p).name : bodyInfo(p).name;
+  return cls !== 'car' ? VEHICLE_LABEL[cls] ?? bodyInfo(p).name : bodyInfo(p).name;
 };
+
+/** The small padlock on an option that needs the Full Game (the option opens the Full Game screen). */
+const LOCK = '<span class="lock" aria-label="Locked: Full Game">&#128274;</span>';
 
 /** A 64x24 side-view icon: the shape, then its wheels. */
 const iconSvg = (path: string, wheels: readonly IconWheel[]): string =>
@@ -111,29 +123,34 @@ function identityHtml(app: App): string {
  * body styles (cars only). Re-rendered in place when the class changes (data-act handlers are
  * delegated from the screen, so they keep working).
  */
-export function carHtml(p: Profile): string {
-  const cur = isVehicleClass(p.vehicle) ? p.vehicle : 'car';
+export function carHtml(p: Profile, unlocked = fullGame().unlocked): string {
+  const cur = classOf(p, unlocked);
   const vehicles = VEHICLE_INFO.map((v) => {
     const on = v.id === cur;
-    return `<button class="body-opt veh-opt ${on ? 'sel' : ''}" data-act="vehicle" data-v="${v.id}" role="radio" aria-checked="${on}" title="${esc(v.blurb)}">${iconSvg(v.icon, v.wheels)}<span>${esc(v.name)}</span></button>`;
+    const lock = vehicleLocked(v.id, unlocked);
+    return `<button class="body-opt veh-opt ${on ? 'sel' : ''}${lock ? ' locked' : ''}" data-act="vehicle" data-v="${v.id}" role="radio" aria-checked="${on}" title="${esc(lock ? `${v.blurb}. Full Game` : v.blurb)}">${iconSvg(v.icon, v.wheels)}<span>${lock ? LOCK : ''}${esc(v.name)}</span></button>`;
   }).join('');
   const colors = CAR_COLORS.includes(p.carColor) ? CAR_COLORS : [p.carColor, ...CAR_COLORS];
   const swatches = colors
     .map((c) => `<button class="swatch ${c === p.carColor ? 'sel' : ''}" style="background:${c}" data-act="color" data-c="${c}" aria-label="Colour ${c}"></button>`)
     .join('');
-  const model = modelOf(p, cur);
+  const model = modelOf(p, cur, unlocked);
+  // Every realistic model of this class needs the Full Game: the Realistic toggle carries the lock.
+  const realLocked = modelsOf(cur).length > 0 && modelsOf(cur).every((m) => modelLocked(m.id, unlocked));
   // Classic (procedural) or Realistic (a downloaded model): two small toggles in the label row, so the
   // pane keeps its height budget (profile.css).
   const look = (['classic', 'realistic'] as const)
     .map((v) => {
       const on = (v === 'realistic') === !!model;
-      return `<button class="look-opt ${on ? 'sel' : ''}" data-act="look" data-v="${v}" aria-pressed="${on}">${v === 'classic' ? 'Classic' : 'Realistic'}</button>`;
+      const lock = v === 'realistic' && realLocked;
+      return `<button class="look-opt ${on ? 'sel' : ''}${lock ? ' locked' : ''}" data-act="look" data-v="${v}" aria-pressed="${on}">${lock ? LOCK : ''}${v === 'classic' ? 'Classic' : 'Realistic'}</button>`;
     })
     .join('');
   const options = model
     ? modelsOf(cur).map((m) => {
         const on = m.id === model.id;
-        return `<button class="body-opt ${on ? 'sel' : ''}" data-act="model" data-m="${m.id}" role="radio" aria-checked="${on}" title="${esc(m.blurb)}">${iconSvg(m.icon, m.wheels)}<span>${esc(m.name)}</span></button>`;
+        const lock = modelLocked(m.id, unlocked);
+        return `<button class="body-opt ${on ? 'sel' : ''}${lock ? ' locked' : ''}" data-act="model" data-m="${m.id}" role="radio" aria-checked="${on}" title="${esc(m.blurb)}">${iconSvg(m.icon, m.wheels)}<span>${lock ? LOCK : ''}${esc(m.name)}</span></button>`;
       })
     : cur === 'car'
       ? CAR_BODIES.map((b) => {
@@ -274,6 +291,12 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       x.setAttribute(aria, String(x === b));
     });
   const setSwitch = (b: HTMLElement, on: boolean) => b.setAttribute('aria-checked', String(on));
+  // A lock badge (Bike, Truck, Realistic): the Full Game screen, and Back returns to this tab.
+  const openStore = () => {
+    commitName();
+    if (mode === 'edit') store.saveSettings();
+    app.showFullGame(() => app.profileScreen(mode, back));
+  };
   // The Vehicle pane changes shape with the class and the look; a keyboard user stays on the control used.
   const redrawCarPane = (focus: string) => {
     const pane = el.querySelector<HTMLElement>('.pf-pane.pf-car');
@@ -327,11 +350,14 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
       app.profileChanged('body');
     },
     look: (b) => {
-      const cls = isVehicleClass(p.vehicle) ? p.vehicle : 'car';
+      const cls = classOf(p);
       const want = b.dataset.v === 'realistic';
       if (want === !!modelOf(p, cls)) return;
+      if (want && modelsOf(cls).every((m) => modelLocked(m.id))) return openStore();
       const models = { ...p.models };
-      if (want) models[cls] = modelsOf(cls)[0]?.id;
+      // A model saved while it was locked (kept for the purchase) comes back first.
+      const saved = p.models[cls];
+      if (want) models[cls] = saved && !modelLocked(saved) ? saved : modelsOf(cls).find((m) => !modelLocked(m.id))?.id;
       else delete models[cls];
       if (want && !models[cls]) return;
       p.models = models;
@@ -341,8 +367,10 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
     },
     model: (b) => {
       const id = b.dataset.m;
-      const cls = isVehicleClass(p.vehicle) ? p.vehicle : 'car';
-      if (!isModelId(id) || vehicleModel(id).cls !== cls || p.models[cls] === id) return;
+      const cls = classOf(p);
+      if (!isModelId(id) || vehicleModel(id).cls !== cls) return;
+      if (modelLocked(id)) return openStore();
+      if (p.models[cls] === id) return;
       p.models = { ...p.models, [cls]: id };
       store.saveProfile();
       redrawCarPane(`[data-act="model"][data-m="${id}"]`);
@@ -350,9 +378,9 @@ export function showProfileScreen(app: App, mode: ProfileMode, back: () => void)
     },
     vehicle: (b) => {
       const v = b.dataset.v;
-      if (!isVehicleClass(v) || v === p.vehicle) return;
-      // Saves the profile and swaps the garage vehicle.
-      app.setVehicle(v);
+      if (!isVehicleClass(v) || v === classOf(p)) return;
+      // Saves the profile and swaps the garage vehicle; a class that needs the Full Game opens its screen.
+      if (!app.setVehicle(v)) return openStore();
       // The body styles are the car's only, so the pane changes shape.
       redrawCarPane(`[data-act="vehicle"][data-v="${v}"]`);
     },

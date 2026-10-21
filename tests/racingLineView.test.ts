@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { lineColors, lineJob, Phase, runJob, type RacingLineData } from '../src/game/racingLine';
+import { lineColors, lineJob, loadStoredLines, Phase, runJob, type RacingLineData } from '../src/game/racingLine';
 import { buildRibbon, chevronMark, drawWindow, RACING_LINE_RENDER_ORDER, RacingLineView } from '../src/render/racingLine';
 import { campaign } from '../src/track/campaign';
 import { Track } from '../src/track/track';
+
+// The precomputed lines load on first use (the game's bundle leaves them out): campaign line jobs need them.
+await loadStoredLines();
 
 /** A straight synthetic line along +x, gently rising, with a hidden stretch (a jump); every phase in turn. */
 function synthetic(n: number, hidden: [number, number]): RacingLineData {

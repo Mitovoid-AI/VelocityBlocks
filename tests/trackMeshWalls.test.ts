@@ -182,6 +182,7 @@ describe('pillars with walls on all roads', () => {
         // Clear of the slab by the half-diagonal of the drawn pillar's 2 m cap, at any heading.
         const reach = Math.SQRT2;
         for (const blk of track.blocks) {
+          if (blk.def.water) continue;
           const l = blk.toLocal(c.x, c.z);
           const h = projectLocal(blk.def, l.a, l.b, 0);
           if (!h) continue;
@@ -201,8 +202,9 @@ describe.each(campaign().map((c) => ({ id: c.id, data: c.data })))('$id with wal
   it('stays within the draw-call budget, with one merged barrier mesh along every block', () => {
     const open = buildTrackVisual(new Track(data));
     const v = buildTrackVisual(new Track(data, { walls: true }));
-    const ms = v.group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh);
-    expect(ms.length).toBeLessThanOrEqual(16);
+    const ms = v.group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && c.visible);
+    // Splash zones cost one draw call of their own (see tests/trackMesh.test.ts).
+    expect(ms.length).toBeLessThanOrEqual(16 + (ms.some((m) => m.name === 'splash') ? 1 : 0));
     const barriers = ms.filter((m) => m.name === 'barrier');
     expect(barriers.length).toBe(1);
     const b = barriers[0];
@@ -215,7 +217,8 @@ describe.each(campaign().map((c) => ({ id: c.id, data: c.data })))('$id with wal
     expect(tris(b)).toBeGreaterThanOrEqual(tris(openBarrier));
     const track = new Track(data, { walls: true });
     const plan = barrierPlan(track);
-    for (const blk of track.blocks) expect(plan.ranges[blk.index]).toEqual([0, blk.def.length]);
+    // Every road block; water cells have no road and no barrier.
+    for (const blk of track.blocks) expect(plan.ranges[blk.index]).toEqual(blk.def.water ? null : [0, blk.def.length]);
     // Same meshes otherwise: walls add at most the barrier mesh itself.
     expect(ms.length - open.group.children.length).toBeLessThanOrEqual(1);
     open.dispose();

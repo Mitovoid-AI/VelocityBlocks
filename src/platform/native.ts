@@ -15,12 +15,24 @@ export interface DeviceInfo {
   nav: string;
 }
 
+/**
+ * Who installed the app (Android): `installer` is the installing package ('com.android.vending' for
+ * Google Play; a package installer, a file manager or null for an APK installed by hand). `known` is
+ * false when Android would not say, or outside the Android app.
+ */
+export interface InstallSource {
+  known: boolean;
+  installer: string | null;
+}
+
 interface VbNativePlugin {
   saveText(options: { name: string; text: string; mime: string }): Promise<{ saved: boolean }>;
   keepAwake(options: { on: boolean }): Promise<void>;
   setGestureExclusion(options: { vw: number; vh: number; rects: ExclusionRect[] }): Promise<void>;
   getGestureInsets(): Promise<GestureInsets>;
   deviceInfo(): Promise<DeviceInfo>;
+  installSource(): Promise<{ known: boolean; installer?: string }>;
+  openUrl(options: { url: string }): Promise<{ opened: boolean }>;
   addListener(event: 'gestureInsets', fn: (g: GestureInsets) => void): Promise<PluginListenerHandle>;
 }
 
@@ -79,5 +91,29 @@ export async function deviceInfo(): Promise<DeviceInfo | null> {
     return await VbNative.deviceInfo();
   } catch {
     return null;
+  }
+}
+
+/** Who installed the app; {known: false} outside the Android app or when Android would not say. */
+export async function installSource(): Promise<InstallSource> {
+  if (!available()) return { known: false, installer: null };
+  try {
+    const r = await VbNative.installSource();
+    return { known: r.known === true, installer: typeof r.installer === 'string' && r.installer ? r.installer : null };
+  } catch {
+    return { known: false, installer: null };
+  }
+}
+
+/**
+ * Open an https address in the system browser (Android app only). False when it could not be opened,
+ * and always false elsewhere (nothing happens there).
+ */
+export async function openExternalUrl(url: string): Promise<boolean> {
+  if (!available() || !/^https:\/\//i.test(url)) return false;
+  try {
+    return (await VbNative.openUrl({ url })).opened === true;
+  } catch {
+    return false;
   }
 }

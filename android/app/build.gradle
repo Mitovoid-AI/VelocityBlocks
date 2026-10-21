@@ -1,5 +1,16 @@
 apply plugin: 'com.android.application'
 
+// The app version is set in one place: "version" in package.json (X.Y.Z). versionName is that string and
+// versionCode is X*10000 + Y*100 + Z (1.2.0 -> 10200), so every new version gets a larger code. Y and Z
+// stay under 100. src/platform/appVersion.ts has the same formula, and tests/appVersion.test.ts checks
+// this file still reads it. Google Play already holds versionCode 3 (version 1.2), below any 1.x.y code.
+def appVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../package.json')).version as String
+def appVersionMatch = appVersion =~ /^(\d+)\.(\d+)\.(\d+)$/
+if (!appVersionMatch.matches()) throw new GradleException("package.json version must be X.Y.Z, not '${appVersion}'")
+def (appMajor, appMinor, appPatch) = (1..3).collect { appVersionMatch.group(it) as int }
+if (appMinor > 99 || appPatch > 99) throw new GradleException("package.json version ${appVersion}: minor and patch must be under 100")
+def appVersionCode = appMajor * 10000 + appMinor * 100 + appPatch
+
 // Play Store upload key: android/keystore.properties (never committed; see keystore.properties.example).
 // Without it, release builds are unsigned and debug builds are unaffected.
 def keystorePropsFile = rootProject.file('keystore.properties')
@@ -13,9 +24,9 @@ android {
         applicationId "com.velocityblocks.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Bump versionCode for every upload to Google Play.
-        versionCode 2
-        versionName "1.1"
+        // From package.json (see the top of this file): bump "version" there for every release.
+        versionCode appVersionCode
+        versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
