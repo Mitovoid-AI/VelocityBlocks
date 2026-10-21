@@ -1,5 +1,5 @@
 // A single time-attack run: countdown, timing at the fixed tick rate, checkpoints in any
-// order, flying respawn at the last checkpoint (also automatic after 3 s flipped, or after a fall
+// order, standing respawn at the last checkpoint (also automatic after 3 s flipped, or after a fall
 // into water), the nitro's
 // race rules (a press in the countdown fires at GO; a respawn never refills it), finish
 // validation and ghost recording.
@@ -321,24 +321,29 @@ export class RaceSession {
 }
 
 /**
- * Flying respawn state saved at a checkpoint: same place and speed, but always upright
- * and pointing down the road so a messy crossing can't trap the player. The body sits a
- * little above its settled ride height (VehicleSpec.respawnY: 0.9 m for the car).
+ * Standing respawn state saved at a checkpoint: same place, but always upright, pointing
+ * down the road so a messy crossing can't trap the player, and at a standstill: the car
+ * pulls away from 0 km/h like at the start, with no speed or pad boost carried over from
+ * the crossing. The body sits a little above its settled ride height
+ * (VehicleSpec.respawnY: 0.9 m for the car).
  */
 function respawnState(car: CarState, gate: PlacedBlock): CarState {
   const c = cloneCar(car);
   const f = forwardOf(car);
   const along = f.x * gate.fx + f.z * gate.fz;
-  const speed = Math.max(0, car.vel.x * gate.fx + car.vel.z * gate.fz);
   const l = gate.toLocal(car.pos.x, car.pos.z);
   const a = Math.max(-WALL_OFF + 2, Math.min(WALL_OFF - 2, l.a));
   const p = gate.toWorld(a, l.b);
   c.pos = { x: p.x, y: gate.baseY + vehicleSpec(car.vehicle).respawnY, z: p.z };
   // Keep the car's own heading if it is roughly aligned with the road, otherwise use the road's.
   c.rot = along > 0.7 && Math.abs(f.y) < 0.5 ? qfromYawDir(f.x, f.z) : qfromYawDir(gate.fx, gate.fz);
-  const nf = forwardOf(c);
-  c.vel = { x: nf.x * speed, y: 0, z: nf.z * speed };
+  c.vel = { x: 0, y: 0, z: 0 };
   c.angVel = { x: 0, y: 0, z: 0 };
+  c.steer = 0;
+  c.boostTime = 0;
+  c.boostPower = 0;
+  c.wheelSpin = 0;
+  c.slip = 0;
   c.drift = 0;
   c.airTime = 0;
   c.tc = 0;

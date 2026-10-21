@@ -10,7 +10,7 @@ import {
 import { buildTrack } from '../src/track/builder';
 import { Track } from '../src/track/track';
 import { Autopilot } from '../src/game/bot';
-import { createCar, forwardOf, upOf, NO_CONTROLS, type Controls } from '../src/physics/vehicle';
+import { createCar, forwardOf, speedOf, upOf, NO_CONTROLS, type Controls } from '../src/physics/vehicle';
 import { qfromAxisAngle, qfromYawDir, qmul, vcross } from '../src/core/vec';
 import { CELL, WALL_OFF } from '../src/core/constants';
 
@@ -70,6 +70,30 @@ describe('flip timer rule', () => {
 
   it('a manual respawn is not automatic', () => {
     expect(new RaceSession(track).respawn()).toEqual([{ type: 'respawn', auto: false }]);
+  });
+});
+
+describe('standing respawn', () => {
+  it('puts the car at the checkpoint at a standstill, with no boost, and it pulls away from 0', () => {
+    const r = new RaceSession(track);
+    toGo(r);
+    for (let n = 0; n < 1000 && r.taken.size === 0; n++) r.step(GAS);
+    expect(r.taken.size).toBe(1);
+    for (let n = 0; n < 50; n++) r.step(GAS);
+    expect(speedOf(r.car)).toBeGreaterThan(20);
+    r.car.boostTime = 1;
+    r.car.boostPower = 20;
+    r.respawn();
+    expect(speedOf(r.car)).toBe(0);
+    expect(r.car.angVel).toEqual({ x: 0, y: 0, z: 0 });
+    expect(r.car.boostTime).toBe(0);
+    expect(r.car.boostPower).toBe(0);
+    expect(r.car.steer).toBe(0);
+    // Gas held through the respawn: the car accelerates from 0 again, not from the crossing speed.
+    r.step(GAS);
+    expect(speedOf(r.car)).toBeLessThan(2);
+    for (let n = 0; n < 50; n++) r.step(GAS);
+    expect(speedOf(r.car)).toBeGreaterThan(2);
   });
 });
 
