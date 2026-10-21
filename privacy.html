@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- Generated from store/privacy-policy.md by scripts/build-site.mjs. Edit the Markdown, not this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy · Velocity Blocks</title>
+<meta name="description" content="Velocity Blocks collects nothing. The APK checks GitHub for a new version at most once a day; that is all that leaves your phone.">
+<link rel="canonical" href="https://mitovoid-ai.github.io/VelocityBlocks/privacy.html">
+<meta name="theme-color" content="#0b1020">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<script>try { var t = localStorage.getItem("vb-site-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,700;0,800;0,900;1,900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body style="padding-bottom:0">
+<header class="top"><div class="wrap"><a class="brand" href="./"><img src="icon.svg" alt="" width="28" height="28">Velocity Blocks</a><a class="pill dark" href="./">Back</a></div></header>
+<main class="doc">
+<div class="wrap">
+<h1>Privacy policy</h1>
+<p>Last updated: 21 October 2026</p>
+<p>Velocity Blocks is a single-player racing game made by Mitovoid-AI. This policy covers the Android app (package <code>com.velocityblocks.game</code>), both the version from Google Play and the APK published on GitHub.</p>
+<h2>What the app collects</h2>
+<p>Nothing. The app has no account system, no analytics, no advertising SDK and no crash reporting service, and it does not send any data to us or to anyone else.</p>
+<h2>Update check (APK from GitHub only)</h2>
+<p>If you installed the app from an APK file (for example one downloaded from the project's GitHub releases) rather than from Google Play, the app checks for a newer version at most once a day: it makes one request to <code>api.github.com</code> (GitHub's public API) for the latest release of the project. No personal data, identifiers or game data are sent with it. As with any web request, GitHub sees your IP address and the request itself, under the <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub Privacy Statement</a>. The app keeps the time of the last check, and a version you chose to skip, on your device. If you tap Download, the APK opens in your browser, which downloads it from GitHub.</p>
+<p>The version installed from Google Play never makes this request: Google Play handles its updates.</p>
+<h2>Purchases</h2>
+<p>The app offers one optional in-app purchase, the <strong>Full Game</strong>. The purchase is made and processed entirely by <strong>Google Play</strong>: your payment details, Google account and order history are handled by Google under the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>, and we do not receive them. The app only asks Google Play on your phone whether the Full Game is owned, and keeps a yes/no note of the answer on your device so the purchase works offline. We collect no personal data in connection with purchases.</p>
+<h2>What stays on your device</h2>
+<p>The app keeps the following on your phone only, in the app's private storage:</p>
+<ul>
+  <li>your driver name, car colour and vehicle choice;</li>
+  <li>your profile photo, if you choose one (from your gallery or camera). It is shrunk to 192 × 192 pixels and is only shown inside the game;</li>
+  <li>your settings, personal-best times, medals, replays/ghosts and the tracks you build;</li>
+  <li>whether the Full Game is unlocked (a yes/no note; &quot;Reset records&quot; does not remove it, and Restore purchases in the game brings it back after a reinstall).</li>
+</ul>
+<p>Uninstalling the app, or clearing its data in Android settings, deletes all of it. &quot;Reset records&quot; in the game's Settings deletes your times, medals and ghosts.</p>
+<h2>Permissions</h2>
+<ul>
+  <li><strong>Internet</strong>: required by the app framework (Capacitor). The game itself sends nothing over the network, except the once-a-day update check of the APK version described above; Google Play's billing service uses it for purchases.</li>
+  <li><strong>Billing</strong> (<code>com.android.vending.BILLING</code>): lets the app open Google Play's purchase screen for the Full Game.</li>
+  <li><strong>Vibrate</strong>: short vibrations on checkpoints.</li>
+  <li>The photo picker and camera are opened only when you tap Gallery or Camera in your driver profile; the app does not request camera or storage permissions for this.</li>
+</ul>
+<h2>Children</h2>
+<p>The game contains no ads, chat or user-to-user features in the Android app and collects no personal data, so it is suitable for all ages. The one in-app purchase goes through Google Play, where parents can require approval for purchases (Family Link, or Play Store &gt; Settings &gt; Authentication).</p>
+<h2>Changes</h2>
+<p>If a future version adds online features (for example leaderboards), this policy will be updated before that version is released, and the change will be described here.</p>
+<h2>Contact</h2>
+<p>Questions: open an issue at <a href="https://github.com/Mitovoid-AI/VelocityBlocks/issues">https://github.com/Mitovoid-AI/VelocityBlocks/issues</a></p>
+</div>
+</main>
+<footer>
+  <div class="wrap">
+    <span>© 2026 Mitovoid-AI</span>
+    <a href="./">Home</a>
+    <a href="https://github.com/Mitovoid-AI/VelocityBlocks">GitHub</a>
+    <a href="https://github.com/Mitovoid-AI/VelocityBlocks/blob/main/store/privacy-policy.md">Source of this page</a>
+  </div>
+</footer>
+</body>
+</html>
