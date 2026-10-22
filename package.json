@@ -37,7 +37,6 @@
     "@capacitor/android": "^6.2.1",
     "@capacitor/core": "^6.2.1",
     "@capacitor/ios": "^6.2.1",
-    "@vercel/analytics": "^2.0.1",
     "cordova-plugin-purchase": "13.18.0",
     "three": "^0.186.1"
   },

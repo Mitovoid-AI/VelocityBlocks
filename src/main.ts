@@ -1,10 +1,6 @@
 import './ui/styles.css';
 import { createAds } from './ads/adsUi';
 import { App } from './app/app';
-import { inject } from '@vercel/analytics';
-
-// Initialize Vercel Web Analytics
-inject();
 
 // The web manifest's icons make the browser game installable, and Chrome on Android would then pop up its
 // own "Install app" banner on every visit. Suppress it: players add the game to the Home Screen from the
