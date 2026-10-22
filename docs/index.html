@@ -57,12 +57,22 @@
         <span class="line grad" aria-hidden="true"><span class="w" style="--i:4">Beat</span> <span class="w" style="--i:5">the</span> <span class="w" style="--i:6">author.</span></span>
       </h1>
       <p class="lede">Velocity Blocks is a time-attack racer made of road blocks. Take every checkpoint, shave off tenths, and chase the hidden Author medal across 24 tracks. Then build your own.</p>
-      <!-- Android by default; script.js swaps the button, its line and the hint for Windows, iPhone/iPad
-           and other computers (the [data-for] blocks). -->
+      <!-- The Download button opens a menu of every platform, this device's first (script.js); without
+           JavaScript it jumps to the downloads section. The [data-for] lines below follow the device. -->
       <div class="cta">
-        <a class="pill light big" id="hero-dl" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg><span id="hero-dl-label">Download for Android</span></a>
+        <div class="dl-wrap">
+          <a class="pill light big" id="hero-dl" href="#download" aria-haspopup="menu" aria-expanded="false" aria-controls="dl-menu"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></a>
+          <div class="dl-menu" id="dl-menu" role="menu" aria-label="Choose your device" hidden>
+            <a class="dl-item" role="menuitem" data-plat="android" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk"><span class="dl-ic" style="--t:#b6f36b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg></span><span class="dl-txt"><strong>Android</strong><small>APK · <span data-asset-size="VelocityBlocks.apk">8.3 MB</span></small></span></a>
+            <a class="dl-item" role="menuitem" data-plat="windows" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks-Setup.exe"><span class="dl-ic" style="--t:#6ee7ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><span class="dl-txt"><strong>Windows installer</strong><small>Windows 10 and 11 · <span data-asset-size="VelocityBlocks-Setup.exe">106 MB</span></small></span></a>
+            <a class="dl-item" role="menuitem" data-plat="windows-portable" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks-Portable.exe"><span class="dl-ic" style="--t:#6ee7ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><span class="dl-txt"><strong>Windows portable .exe</strong><small>Runs without installing · <span data-asset-size="VelocityBlocks-Portable.exe">106 MB</span></small></span></a>
+            <a class="dl-item" role="menuitem" data-plat="ios" href="play/"><span class="dl-ic" style="--t:#ffd75e"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M12 18h.01"/></svg></span><span class="dl-txt"><strong>iPhone and iPad</strong><small>Play in Safari, add to Home Screen</small></span></a>
+            <a class="dl-item" role="menuitem" data-plat="other" href="play/"><span class="dl-ic" style="--t:#ff9a6b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg></span><span class="dl-txt"><strong>Play in your browser</strong><small>Mac, Linux, Chromebook, any computer</small></span></a>
+            <a class="dl-all" role="menuitem" href="#download">All downloads and install help</a>
+          </div>
+        </div>
         <p class="cta-meta" data-for="android">Free · Android 6.0+ · <span data-asset-size="VelocityBlocks.apk">8.3 MB</span><span data-release-version></span></p>
-        <p class="cta-meta" data-for="windows" hidden>Free · Windows 10 and 11, 64-bit · <span data-asset-size="VelocityBlocks-Setup.exe">101 MB</span><span data-release-version></span></p>
+        <p class="cta-meta" data-for="windows" hidden>Free · Windows 10 and 11, 64-bit · <span data-asset-size="VelocityBlocks-Setup.exe">106 MB</span><span data-release-version></span></p>
         <p class="cta-meta" data-for="ios" hidden>Free · iPhone and iPad, in Safari · nothing to install</p>
         <p class="cta-meta" data-for="other" hidden>Free · any modern browser · nothing to install</p>
       </div>
@@ -241,7 +251,7 @@
         <div class="plat-dl">
           <a class="pill light" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks-Setup.exe">Installer</a>
           <a class="pill dark" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks-Portable.exe">Portable .exe</a>
-          <span class="size" data-asset-size="VelocityBlocks-Setup.exe">101 MB</span>
+          <span class="size" data-asset-size="VelocityBlocks-Setup.exe">106 MB</span>
         </div>
         <p class="fine">Not signed yet: if Windows says <strong>Windows protected your PC</strong>, click <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
       </article>
@@ -346,7 +356,7 @@
 
 <div class="dock">
   <button class="pill dark" type="button" id="menu-open" aria-haspopup="dialog" aria-controls="menu"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>Menu</button>
-  <a class="pill light" href="https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/VelocityBlocks.apk" data-apk data-dl><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download</a>
+  <a class="pill light" href="#download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download</a>
 </div>
 
 <dialog class="menu" id="menu" aria-label="Menu">

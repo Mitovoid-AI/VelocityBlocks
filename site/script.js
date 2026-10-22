@@ -22,40 +22,78 @@
   syncTheme();
 
   // ------------------------------------------------------------ the visitor's device
-  // Android keeps the page as written (the APK). Windows gets the installer, iPhone/iPad and other computers
-  // the browser game; the [data-for] lines under the hero button follow. A guess from the user agent: the
-  // "Get it on every device" section always lists everything.
-  var LATEST = "https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/";
+  // A guess from the user agent. It only orders things: this device's choice goes first in the Download menu
+  // (marked "This device"), its card in "Get it on every device" gets the gradient edge, and the [data-for]
+  // lines under the hero button follow. Every platform stays one tap away.
   var ua = navigator.userAgent || "";
   var platform =
     /Android/i.test(ua) ? "android" :
     /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "ios" :
     /Windows/i.test(ua) && !/Windows Phone/i.test(ua) ? "windows" :
     /Linux|Macintosh|CrOS|X11/i.test(ua) ? "other" : "android";
-  var DL = {
-    android: { href: LATEST + "VelocityBlocks.apk", label: "Download for Android", short: "Download" },
-    windows: { href: LATEST + "VelocityBlocks-Setup.exe", label: "Download for Windows", short: "Download" },
-    ios: { href: "play/", label: "Play on iPhone and iPad", short: "Play" },
-    other: { href: "play/", label: "Play in your browser", short: "Play" }
-  }[platform];
-  if (platform !== "android") {
-    var heroBtn = document.getElementById("hero-dl");
-    var heroLabel = document.getElementById("hero-dl-label");
-    if (heroBtn && heroLabel) {
-      heroBtn.href = DL.href;
-      heroBtn.removeAttribute("data-apk");
-      heroLabel.textContent = DL.label;
-    }
-    document.querySelectorAll("[data-for]").forEach(function (el) { el.hidden = el.getAttribute("data-for") !== platform; });
-    document.querySelectorAll("[data-dl]").forEach(function (el) {
-      el.href = DL.href;
-      el.removeAttribute("data-apk");
-      var last = el.lastChild;
-      if (last && last.nodeType === 3) last.textContent = DL.short;
-    });
-  }
+  document.querySelectorAll("[data-for]").forEach(function (el) { el.hidden = el.getAttribute("data-for") !== platform; });
   var mine = document.querySelector('.plat[data-plat="' + platform + '"]');
   if (mine) mine.classList.add("mine");
+
+  // ------------------------------------------------------------ Download menu
+  // The hero button opens a menu of every platform instead of starting a download. Without this script it
+  // is a plain link to #download.
+  (function downloadMenu() {
+    var btn = document.getElementById("hero-dl");
+    var menu = document.getElementById("dl-menu");
+    if (!btn || !menu) return;
+    var first = menu.querySelector('.dl-item[data-plat="' + platform + '"]');
+    if (first) {
+      menu.insertBefore(first, menu.firstChild);
+      first.classList.add("mine");
+      var tag = document.createElement("em");
+      tag.className = "dl-tag";
+      tag.textContent = "This device";
+      first.querySelector("strong").appendChild(tag);
+      // On Windows the portable .exe follows the installer.
+      var portable = platform === "windows" && menu.querySelector('.dl-item[data-plat="windows-portable"]');
+      if (portable) menu.insertBefore(portable, first.nextSibling);
+    }
+    var items = function () { return Array.prototype.slice.call(menu.querySelectorAll("[role=menuitem]")); };
+    function open(focusFirst) {
+      menu.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      // Keep the whole menu above the floating Menu / Download bar at the bottom of the screen.
+      var dock = document.querySelector(".dock");
+      var limit = window.innerHeight - (dock ? dock.offsetHeight : 0) - 8;
+      var over = menu.getBoundingClientRect().bottom - limit;
+      if (over > 0) window.scrollBy({ top: over, behavior: reduce ? "auto" : "smooth" });
+      if (focusFirst) items()[0].focus({ preventScroll: over > 0 });
+    }
+    function close(refocus) {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      if (refocus) btn.focus();
+    }
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      if (menu.hidden) open(e.detail === 0); else close(false);
+    });
+    btn.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown") { e.preventDefault(); open(true); }
+    });
+    menu.addEventListener("keydown", function (e) {
+      var list = items(), i = list.indexOf(document.activeElement);
+      if (e.key === "Escape") { e.preventDefault(); close(true); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); list[(i + 1) % list.length].focus(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); list[(i - 1 + list.length) % list.length].focus(); }
+      else if (e.key === "Home") { e.preventDefault(); list[0].focus(); }
+      else if (e.key === "End") { e.preventDefault(); list[list.length - 1].focus(); }
+      else if (e.key === "Tab") close(false);
+    });
+    // A choice closes it (a download starts, or the page moves to #download or play/).
+    menu.addEventListener("click", function (e) { if (e.target.closest("a")) close(false); });
+    document.addEventListener("click", function (e) {
+      if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) close(false);
+    });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(true); });
+  })();
 
   // ------------------------------------------------------------ release version and file sizes
   // The links always point at releases/latest/download/<fixed name>; this only fills in the version and the
