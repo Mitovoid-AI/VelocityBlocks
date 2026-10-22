@@ -2,6 +2,11 @@ import './ui/styles.css';
 import { createAds } from './ads/adsUi';
 import { App } from './app/app';
 
+// The web manifest's icons make the browser game installable, and Chrome on Android would then pop up its
+// own "Install app" banner on every visit. Suppress it: players add the game to the Home Screen from the
+// browser menu if they want, and the website points them to the real apps.
+window.addEventListener('beforeinstallprompt', (e) => e.preventDefault());
+
 function hideBoot(): void {
   const el = document.querySelector<HTMLElement>('#boot');
   if (!el) return;
