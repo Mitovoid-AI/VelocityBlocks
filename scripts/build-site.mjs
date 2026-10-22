@@ -99,8 +99,6 @@ ${body}
   <div class="wrap">
     <span>© 2026 Mitovoid-AI</span>
     <a href="./">Home</a>
-    <a href="https://github.com/Mitovoid-AI/VelocityBlocks">GitHub</a>
-    <a href="https://github.com/Mitovoid-AI/VelocityBlocks/blob/main/store/privacy-policy.md">Source of this page</a>
   </div>
 </footer>
 </body>
