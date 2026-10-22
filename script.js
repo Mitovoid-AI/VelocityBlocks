@@ -93,7 +93,14 @@
       if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) close(false);
     });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(true); });
+    // Phone browsers keep a page in memory when you leave it (back-forward cache, a restored tab): never
+    // bring it back with the menu still open.
+    window.addEventListener("pagehide", function () { close(false); });
+    window.addEventListener("pageshow", function () { close(false); });
   })();
+
+  // No browser "Install app" banner on the website either: the downloads are the apps.
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); });
 
   // ------------------------------------------------------------ release version and file sizes
   // The links always point at releases/latest/download/<fixed name>; this only fills in the version and the
