@@ -17,6 +17,7 @@
     "build": "tsc --noEmit && vite build",
     "build:crazygames": "tsc --noEmit && vite build --mode crazygames",
     "build:poki": "tsc --noEmit && vite build --mode poki",
+    "build:gamemonetize": "tsc --noEmit && vite build --mode gamemonetize",
     "build:web": "tsc --noEmit && vite build --mode crazygames && vite build --mode poki",
     "preview": "vite preview --host",
     "test": "vitest run",

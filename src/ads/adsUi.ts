@@ -5,17 +5,19 @@ import { Capacitor } from '@capacitor/core';
 import './ads.css';
 import { Ads, bannerSize, noAds, type AdProvider } from './ads';
 import { crazyGamesAds } from './crazygames';
+import { gameMonetizeAds } from './gamemonetize';
 import { pokiAds } from './poki';
 import { testAds } from './testAds';
 
 /**
- * The network chosen at build time (`vite --mode crazygames|poki|adtest`, see .env.*). Each
+ * The network chosen at build time (`vite --mode crazygames|poki|gamemonetize|adtest`, see .env.*). Each
  * test compares the build constant directly, so the bundler drops the other adapters: a portal
  * build never mentions another portal's SDK.
  */
 function buildProvider(): AdProvider {
   if (__VB_ADS__ === 'crazygames') return crazyGamesAds();
   if (__VB_ADS__ === 'poki') return pokiAds();
+  if (__VB_ADS__ === 'gamemonetize') return gameMonetizeAds();
   if (__VB_ADS__ === 'adtest') return testAds();
   return noAds;
 }

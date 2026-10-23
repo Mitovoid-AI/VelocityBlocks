@@ -280,7 +280,7 @@ describe('who checks', () => {
     expect(updateChannel(env({ platform: 'web', native: false }))).toBe('off');
     expect(updateChannel(env({ native: false }))).toBe('off');
     expect(updateChannel(env({ platform: 'ios' }))).toBe('off');
-    for (const ads of ['crazygames', 'poki', 'adtest']) expect(updateChannel(env({ ads }))).toBe('off');
+    for (const ads of ['crazygames', 'poki', 'gamemonetize', 'adtest']) expect(updateChannel(env({ ads }))).toBe('off');
     expect(updateChannel(env({ dev: true }))).toBe('off');
   });
 

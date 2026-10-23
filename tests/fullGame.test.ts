@@ -98,7 +98,7 @@ const idOf = (id: string) => campaign().findIndex((c) => c.id === id);
 
 describe('builds', () => {
   it('portal builds and the web build are not sold anything: everything is unlocked', () => {
-    for (const ads of ['crazygames', 'poki', 'adtest']) expect(detectBuildKind({ ads, platform: 'web', debug: false })).toBe('portal');
+    for (const ads of ['crazygames', 'poki', 'gamemonetize', 'adtest']) expect(detectBuildKind({ ads, platform: 'web', debug: false })).toBe('portal');
     // A portal mode wins even if the bundle somehow ran in the app.
     expect(detectBuildKind({ ads: 'poki', platform: 'android', debug: false })).toBe('portal');
     expect(detectBuildKind({ ads: 'none', platform: 'web', debug: true })).toBe('web');

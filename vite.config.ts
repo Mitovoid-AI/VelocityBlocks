@@ -3,7 +3,7 @@ import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 /** Browser builds with an ad network (VITE_ADS comes from .env.<mode>), each in its own folder. */
-const AD_MODES = ['crazygames', 'poki', 'adtest'];
+const AD_MODES = ['crazygames', 'poki', 'gamemonetize', 'adtest'];
 
 /** package.json "version" is the one place the app version is set (android/app/build.gradle reads it too). */
 const APP_VERSION = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;

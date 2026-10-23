@@ -3,7 +3,7 @@
 // Ads never play while driving: an interstitial may come before a race starts, a rewarded ad
 // can unlock a campaign track, and a banner may sit under some menu screens.
 
-export type AdNetwork = 'none' | 'crazygames' | 'poki' | 'adtest';
+export type AdNetwork = 'none' | 'crazygames' | 'poki' | 'gamemonetize' | 'adtest';
 
 export interface AdProvider {
   readonly network: AdNetwork;
