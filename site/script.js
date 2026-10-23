@@ -190,7 +190,7 @@
   cards.forEach(function (c, i) {
     var b = document.createElement("button");
     b.type = "button";
-    b.setAttribute("aria-label", "Card " + (i + 1) + " of " + cards.length + ": " + c.querySelector("h3").textContent);
+    b.setAttribute("aria-label", "Card " + (i + 1) + " of " + cards.length + ": " + c.querySelector("h2").textContent);
     b.addEventListener("click", function () { goTo(i); });
     dotsEl.appendChild(b);
   });
@@ -206,7 +206,7 @@
     });
     var top = order[0];
     Array.prototype.forEach.call(dotsEl.children, function (d, i) { d.setAttribute("aria-current", i === top ? "true" : "false"); });
-    live.textContent = "Card " + (top + 1) + " of " + cards.length + ": " + cards[top].querySelector("h3").textContent;
+    live.textContent = "Card " + (top + 1) + " of " + cards.length + ": " + cards[top].querySelector("h2").textContent;
   }
   function next(dir) {
     if (busy) return;

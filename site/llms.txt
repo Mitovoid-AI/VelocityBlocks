@@ -1,0 +1,20 @@
+# Velocity Blocks
+
+> A free, single-player time-attack racing game built from road blocks, for Android, Windows, iPhone/iPad (in Safari) and any web browser. Take every checkpoint, shave off tenths and beat the hidden Author time on each track. No ads, no account, plays offline. Open source (MIT).
+
+## Facts
+
+- 24 campaign tracks in three sets: Stadium (A01 to A12), Desert (D01 to D06) and Water (W01 to W06), graded White to Black, with Bronze, Silver, Gold and a hidden Author medal on each.
+- Vehicles: a car (four bodies), a motorbike and a truck, each with its own handling and records. Optional realistic 3D models.
+- Nitro (recharges six seconds after each boost), ghosts of your best run, replays, a racing line (green: full throttle, yellow: lift, red: brake), optional walls on every road.
+- Track editor: a 32 x 32 grid with 8 levels; test-drive and share tracks as files.
+- Controls: keyboard, gamepad, touch pedals and steering, an on-screen wheel, or tilt steering.
+- Price: free on Android (APK), Windows (installer or portable .exe) and in the browser, with everything unlocked. A Google Play version is planned: free, with one optional one-time Full Game purchase.
+
+## Links
+
+- [Website](https://velocityblocks.vercel.app/): features, screenshots, trailer and downloads
+- [Play in the browser](https://velocityblocks.vercel.app/play/): the full game, no download
+- [Downloads (latest release)](https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest): Android APK and Windows files
+- [Privacy policy](https://velocityblocks.vercel.app/privacy.html): the game collects no personal data
+- [Source code](https://github.com/Mitovoid-AI/VelocityBlocks): MIT license

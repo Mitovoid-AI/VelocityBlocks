@@ -17,6 +17,11 @@ const SITE = path.join(ROOT, 'site');
 const OUT = path.join(ROOT, 'docs');
 const PLAY = path.join(OUT, 'play');
 const noGame = process.argv.includes('--no-game');
+/**
+ * The one address search engines should index (canonical links, sitemap, structured data). GitHub Pages serves
+ * the same pages and points here, so the two copies never compete as duplicates. site/index.html carries it too.
+ */
+const SITE_URL = 'https://velocityblocks.vercel.app/';
 
 // ---------------------------------------------------------------- privacy.html from the policy's Markdown
 function esc(s) {
@@ -79,7 +84,7 @@ function renderPrivacy() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Privacy policy · Velocity Blocks</title>
 <meta name="description" content="Velocity Blocks collects nothing. The APK checks GitHub for a new version at most once a day; that is all that leaves your phone.">
-<link rel="canonical" href="https://mitovoid-ai.github.io/VelocityBlocks/privacy.html">
+<link rel="canonical" href="${SITE_URL}privacy.html">
 <meta name="theme-color" content="#0b1020">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <script>try { var t = localStorage.getItem("vb-site-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}</script>
@@ -159,6 +164,56 @@ function size(dir) {
   return walk(dir).reduce((n, f) => n + fs.statSync(f).size, 0);
 }
 
+// ---------------------------------------------------------------- search engines
+// robots.txt and sitemap.xml at the top of docs/ (Vercel serves them at the domain root, where crawlers look).
+function writeCrawlFiles() {
+  const today = new Date().toISOString().slice(0, 10);
+  fs.writeFileSync(
+    path.join(OUT, 'robots.txt'),
+    `# Velocity Blocks: everything may be crawled.\nUser-agent: *\nAllow: /\n\nSitemap: ${SITE_URL}sitemap.xml\n`,
+  );
+  const urls = [
+    ['', '1.0', 'weekly'],
+    ['play/', '0.8', 'monthly'],
+    ['privacy.html', '0.3', 'yearly'],
+  ];
+  const body = urls
+    .map(([u, prio, freq]) => `  <url><loc>${SITE_URL}${u}</loc><lastmod>${today}</lastmod><changefreq>${freq}</changefreq><priority>${prio}</priority></url>`)
+    .join('\n');
+  fs.writeFileSync(
+    path.join(OUT, 'sitemap.xml'),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`,
+  );
+}
+
+/**
+ * The game's index.html also goes into the APK, the Windows app and the portal builds, so its head stays plain.
+ * The website copy in docs/play/ gets a searchable title and description, a canonical link and share tags.
+ */
+const PLAY_MARK = '<!-- play-seo -->';
+function playPageSeo(file) {
+  let html = fs.readFileSync(file, 'utf8');
+  if (html.includes(PLAY_MARK)) return;
+  const title = 'Play Velocity Blocks Free in Your Browser: Time-Attack Racing Game';
+  const desc =
+    'Play Velocity Blocks free in your browser, no download: a time-attack racing game with 24 tracks, a car, a bike and a truck, nitro and a track editor. Keyboard, gamepad or touch.';
+  html = html.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`);
+  html = html.replace(/<meta name="description" content="[^"]*"\s*\/?>/, `<meta name="description" content="${desc}" />`);
+  const tags = [
+    PLAY_MARK,
+    `<link rel="canonical" href="${SITE_URL}play/" />`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:site_name" content="Velocity Blocks" />`,
+    `<meta property="og:title" content="${title}" />`,
+    `<meta property="og:description" content="${desc}" />`,
+    `<meta property="og:url" content="${SITE_URL}play/" />`,
+    `<meta property="og:image" content="${SITE_URL}img/og.jpg" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+  ].join('\n');
+  if (!html.includes('</head>')) throw new Error(`${file} has no </head>`);
+  fs.writeFileSync(file, html.replace('</head>', `${tags}\n</head>`));
+}
+
 // ---------------------------------------------------------------- main
 renderPrivacy();
 console.log('site/privacy.html rendered from store/privacy-policy.md');
@@ -187,6 +242,9 @@ if (!noGame) {
   const n = checkGame();
   console.log(`web game built into docs/play/ (${n} files)`);
 }
+writeCrawlFiles();
+if (fs.existsSync(path.join(PLAY, 'index.html'))) playPageSeo(path.join(PLAY, 'index.html'));
+console.log('robots.txt, sitemap.xml and the play/ page tags written');
 const pages = fs.readdirSync(OUT).filter((f) => f.endsWith('.html')).map((f) => path.join(OUT, f));
 if (fs.existsSync(path.join(PLAY, 'index.html'))) pages.push(path.join(PLAY, 'index.html'));
 const tagged = pages.filter(addAnalytics).length;
