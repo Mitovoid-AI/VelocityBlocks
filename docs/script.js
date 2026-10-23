@@ -278,6 +278,56 @@
     opener.addEventListener("click", function () { location.hash = "#why"; });
   }
 
+  // ------------------------------------------------------------ trailer
+  // Nothing but the poster loads with the page. Play swaps in a <video> that streams video/master.m3u8 in
+  // 2-second segments, at 480p, 720p or 1080p as the connection allows: natively in Safari (iPhone, iPad, Mac),
+  // through hls.js elsewhere (vendor/, fetched on this press only), or the 720p MP4 when neither works.
+  var tBox = document.getElementById("trailer-box");
+  var tPlay = document.getElementById("trailer-play");
+  if (tBox && tPlay) {
+    var HLS = "video/master.m3u8";
+    var MP4 = "video/trailer-720p.mp4";
+    var start = function () {
+      if (tBox.classList.contains("loading")) return;
+      tBox.classList.add("loading");
+      var v = document.createElement("video");
+      v.controls = true;
+      v.playsInline = true;
+      v.preload = "auto";
+      v.poster = "video/poster.jpg";
+      v.setAttribute("aria-label", "Velocity Blocks trailer");
+      var go = function () {
+        tBox.replaceChildren(v);
+        tBox.classList.remove("loading");
+        var p = v.play();
+        if (p && p.catch) p.catch(function () {});
+      };
+      var mp4 = function () { v.src = MP4; go(); };
+      if (v.canPlayType("application/vnd.apple.mpegurl")) { v.src = HLS; go(); return; }
+      if (!("MediaSource" in window || "ManagedMediaSource" in window)) { mp4(); return; }
+      var s = document.createElement("script");
+      s.src = "vendor/hls.light.min.js";
+      s.onload = function () {
+        if (!window.Hls || !window.Hls.isSupported()) { mp4(); return; }
+        // Start at 720p on a fast enough link instead of crawling up from 480p, and keep only about 6 s
+        // (three segments) ahead, so a visitor who stops early never downloads the rest.
+        var hls = new window.Hls({
+          capLevelToPlayerSize: true, startLevel: -1, abrEwmaDefaultEstimate: 3000000,
+          maxBufferLength: 6, maxMaxBufferLength: 8, maxBufferSize: 0,
+        });
+        hls.on(window.Hls.Events.ERROR, function (e, d) {
+          if (d.fatal) { hls.destroy(); v.removeAttribute("src"); mp4(); }
+        });
+        hls.loadSource(HLS);
+        hls.attachMedia(v);
+        go();
+      };
+      s.onerror = mp4;
+      document.head.appendChild(s);
+    };
+    tPlay.addEventListener("click", start);
+  }
+
   // ------------------------------------------------------------ reveal on scroll
   var reveal = document.querySelectorAll("[data-reveal]");
   if (!reduce && "IntersectionObserver" in window) {

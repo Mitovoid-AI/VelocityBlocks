@@ -32,6 +32,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,700;0,800;0,900;1,900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<!-- vercel-analytics -->
+<script>(function () {
+  var h = location.hostname;
+  if (h === "localhost" || h === "127.0.0.1" || /\.github\.io$/.test(h)) return;
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  var s = document.createElement("script");
+  s.defer = true;
+  s.src = "/_vercel/insights/script.js";
+  document.head.appendChild(s);
+})();</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -123,6 +133,20 @@
       <div class="dots" id="dots" role="group" aria-label="Choose a card"></div>
       <p class="deck-hint">Tap or swipe the cards</p>
       <p class="sr" id="deck-live" aria-live="polite"></p>
+    </div>
+  </div>
+</section>
+
+<!-- The trailer downloads nothing but its poster until Play is pressed (script.js): then it streams in 2-second
+     HLS segments, 480p / 720p / 1080p picked by the connection (hls.js, loaded on that press), or the 720p MP4. -->
+<section id="trailer">
+  <div class="wrap" data-reveal>
+    <h2>See it in 20 seconds</h2>
+    <div class="trailer" id="trailer-box">
+      <img src="video/poster.jpg" alt="Velocity Blocks trailer: Build it. Drive it. Beat the author." width="1280" height="720" loading="lazy" decoding="async">
+      <button class="trailer-play" id="trailer-play" type="button" aria-label="Play the trailer (20 seconds, with sound)">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.8v10.4a.6.6 0 0 0 .9.5l8.2-5.2a.6.6 0 0 0 0-1L5.4 2.3a.6.6 0 0 0-.9.5Z"/></svg>
+      </button>
     </div>
   </div>
 </section>
@@ -341,7 +365,7 @@
       <li><a href="https://sketchfab.com/3d-models/cafe-racer-c02dec85ac0541b8ab6dd56098706b50">Cafe Racer</a> by Milin Andrei: the realistic bike (the rider is the game's own)</li>
       <li><a href="https://sketchfab.com/3d-models/lct-3000-95-low-poly-model-663a0953c038434a918cb85725c88ffa">LCT 3000 '95</a> by Daniel Zhabotinsky: the realistic truck</li>
     </ul>
-    <p class="fine">What was changed in each model is listed in <a href="https://github.com/Mitovoid-AI/VelocityBlocks/blob/main/public/vehicles/CREDITS.md">CREDITS.md</a>. TrackMania is a trademark of Ubisoft and Nadeo; Velocity Blocks is an independent project and is not affiliated with or endorsed by them.</p>
+    <p class="fine">What was changed in each model is listed in <a href="https://github.com/Mitovoid-AI/VelocityBlocks/blob/main/public/vehicles/CREDITS.md">CREDITS.md</a>. TrackMania is a trademark of Ubisoft and Nadeo; Velocity Blocks is an independent project and is not affiliated with or endorsed by them. The trailer streams with <a href="https://github.com/video-dev/hls.js">hls.js</a> (Apache License 2.0).</p>
   </div>
 </section>
 </main>
