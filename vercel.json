@@ -1,6 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "trailingSlash": true,
+  "redirects": [
+    {
+      "source": "/download/:file(VelocityBlocks\\.apk|VelocityBlocks-Setup\\.exe|VelocityBlocks-Portable\\.exe)",
+      "destination": "https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest/download/:file",
+      "permanent": false
+    }
+  ],
   "headers": [
     {
       "source": "/play/assets/(.*)",
