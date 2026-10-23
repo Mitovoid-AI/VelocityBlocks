@@ -129,6 +129,32 @@ function checkGame() {
   return files.length;
 }
 
+// ---------------------------------------------------------------- Vercel Web Analytics
+// Page views of the site and the web game, counted on the Vercel deployment (Root Directory docs/), where
+// Vercel serves /_vercel/insights/script.js. GitHub Pages and local previews have no such script, so it is
+// only requested off those hosts. Added to the built pages, not site/ or the game's index.html (which also
+// goes into the APK, the Windows app and the portal builds). The URL is set from script, so checkGame's
+// root-absolute URL check still holds for play/index.html.
+const ANALYTICS_MARK = '<!-- vercel-analytics -->';
+const ANALYTICS = `${ANALYTICS_MARK}
+<script>(function () {
+  var h = location.hostname;
+  if (h === "localhost" || h === "127.0.0.1" || /\\.github\\.io$/.test(h)) return;
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  var s = document.createElement("script");
+  s.defer = true;
+  s.src = "/_vercel/insights/script.js";
+  document.head.appendChild(s);
+})();</script>
+`;
+function addAnalytics(file) {
+  const html = fs.readFileSync(file, 'utf8');
+  if (html.includes(ANALYTICS_MARK)) return false;
+  if (!html.includes('</head>')) throw new Error(`${file} has no </head> for the analytics snippet`);
+  fs.writeFileSync(file, html.replace('</head>', `${ANALYTICS}</head>`));
+  return true;
+}
+
 function size(dir) {
   return walk(dir).reduce((n, f) => n + fs.statSync(f).size, 0);
 }
@@ -161,4 +187,8 @@ if (!noGame) {
   const n = checkGame();
   console.log(`web game built into docs/play/ (${n} files)`);
 }
+const pages = fs.readdirSync(OUT).filter((f) => f.endsWith('.html')).map((f) => path.join(OUT, f));
+if (fs.existsSync(path.join(PLAY, 'index.html'))) pages.push(path.join(PLAY, 'index.html'));
+const tagged = pages.filter(addAnalytics).length;
+console.log(`Vercel Analytics added to ${tagged} page(s)`);
 console.log(`docs/: ${(size(OUT) / 1048576).toFixed(1)} MB. Preview: npm run site:serve, then open http://localhost:5371/VelocityBlocks/`);

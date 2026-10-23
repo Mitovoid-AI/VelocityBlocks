@@ -40,3 +40,6 @@ android/keystore.properties
 # Windows app build (npm run release:windows)
 desktop-dist/
 builds/
+
+# Launch-video work files from the brag workflow (frames, renders): keep local
+brag-output*/
