@@ -1,0 +1,5 @@
+# Velocity Blocks: everything may be crawled.
+User-agent: *
+Allow: /
+
+Sitemap: https://velocityblocks.vercel.app/sitemap.xml
