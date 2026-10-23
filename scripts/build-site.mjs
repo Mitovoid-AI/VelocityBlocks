@@ -155,6 +155,8 @@ const ANALYTICS = `${ANALYTICS_MARK}
 function addAnalytics(file) {
   const html = fs.readFileSync(file, 'utf8');
   if (html.includes(ANALYTICS_MARK)) return false;
+  // Not a page (a search engine's verification file, e.g. google<id>.html, must stay byte for byte).
+  if (!/<html[\s>]/i.test(html)) return false;
   if (!html.includes('</head>')) throw new Error(`${file} has no </head> for the analytics snippet`);
   fs.writeFileSync(file, html.replace('</head>', `${ANALYTICS}</head>`));
   return true;
