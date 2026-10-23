@@ -2,7 +2,7 @@
 
 Last updated: 22 October 2026
 
-Velocity Blocks is a single-player racing game made by Mitovoid-AI. This policy covers the Android
+Velocity Blocks is a single-player racing game made by the Velocity Blocks team. This policy covers the Android
 app (package `com.velocityblocks.game`), both the version from Google Play and the APK published on
 GitHub, and the Windows app published on GitHub.
 
@@ -77,4 +77,4 @@ before that version is released, and the change will be described here.
 
 ## Contact
 
-Questions: open an issue at https://github.com/Mitovoid-AI/VelocityBlocks/issues
+Questions: email mitovoid.contact@gmail.com

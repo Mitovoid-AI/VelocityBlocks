@@ -102,7 +102,7 @@ ${body}
 </main>
 <footer>
   <div class="wrap">
-    <span>© 2026 Mitovoid-AI</span>
+    <span>© 2026 Velocity Blocks</span>
     <a href="./">Home</a>
   </div>
 </footer>
@@ -216,17 +216,59 @@ function playPageSeo(file) {
   fs.writeFileSync(file, html.replace('</head>', `${tags}\n</head>`));
 }
 
+// ---------------------------------------------------------------- release version and file sizes
+// The download buttons show each file's size and the version. They are read from the latest GitHub release
+// here, once per build, and written into docs/index.html, so visitors' browsers never contact GitHub. Offline
+// or rate-limited: the sizes written in site/index.html stay, and the version is left out.
+const RELEASE_API = 'https://api.github.com/repos/Mitovoid-AI/VelocityBlocks/releases/latest';
+async function fillReleaseInfo(file) {
+  let rel;
+  try {
+    const res = await fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    rel = await res.json();
+  } catch (e) {
+    console.warn(`Release info not fetched (${e.message}); the download sizes stay as written in site/index.html`);
+    return;
+  }
+  const sizes = {};
+  for (const a of rel.assets ?? []) {
+    if (a?.name && a.size) sizes[a.name] = `${a.size / 1e6 >= 20 ? Math.round(a.size / 1e6) : (a.size / 1e6).toFixed(1)} MB`;
+  }
+  const version = /^v?\d+\.\d+\.\d+$/.test(rel.tag_name ?? '') ? `v${rel.tag_name.replace(/^v/, '')}` : '';
+  let html = fs.readFileSync(file, 'utf8');
+  html = html.replace(/(<span data-asset-size="([^"]+)">)[^<]*(<\/span>)/g, (m, open, name, close) => (sizes[name] ? `${open}${sizes[name]}${close}` : m));
+  if (version) html = html.replace(/<span data-release-version><\/span>/g, `<span data-release-version> · ${version}</span>`);
+  fs.writeFileSync(file, html);
+  console.log(`Release ${version || '(no version)'}: ${Object.keys(sizes).length} file sizes written into the page`);
+}
+
 // ---------------------------------------------------------------- main
 renderPrivacy();
 console.log('site/privacy.html rendered from store/privacy-policy.md');
-// --no-game keeps the game from the last full build.
+// --no-game keeps the game from the last full build. It is parked outside docs/ while docs/ is replaced, and
+// always put back, even when that fails (Windows can briefly lock a file). A game left parked by an older,
+// interrupted run is put back first.
+for (const d of fs.readdirSync(ROOT).filter((f) => f.startsWith('.site-play-'))) {
+  const parked = path.join(ROOT, d, 'play');
+  if (fs.existsSync(parked) && !fs.existsSync(PLAY)) {
+    fs.mkdirSync(OUT, { recursive: true });
+    fs.renameSync(parked, PLAY);
+    console.log(`docs/play/ restored from ${d}/ (left by an interrupted build)`);
+  }
+  if (!fs.existsSync(parked)) fs.rmSync(path.join(ROOT, d), { recursive: true, force: true });
+}
 const keep = noGame && fs.existsSync(PLAY) ? fs.mkdtempSync(path.join(ROOT, '.site-play-')) : null;
 if (keep) fs.renameSync(PLAY, path.join(keep, 'play'));
-fs.rmSync(OUT, { recursive: true, force: true });
-fs.cpSync(SITE, OUT, { recursive: true });
-if (keep) {
-  fs.renameSync(path.join(keep, 'play'), PLAY);
-  fs.rmSync(keep, { recursive: true, force: true });
+try {
+  fs.rmSync(OUT, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  fs.cpSync(SITE, OUT, { recursive: true });
+} finally {
+  if (keep) {
+    fs.mkdirSync(OUT, { recursive: true });
+    fs.renameSync(path.join(keep, 'play'), PLAY);
+    fs.rmSync(keep, { recursive: true, force: true });
+  }
 }
 console.log(`site/ copied to docs/`);
 
@@ -245,6 +287,7 @@ if (!noGame) {
   console.log(`web game built into docs/play/ (${n} files)`);
 }
 writeCrawlFiles();
+await fillReleaseInfo(path.join(OUT, 'index.html'));
 if (fs.existsSync(path.join(PLAY, 'index.html'))) playPageSeo(path.join(PLAY, 'index.html'));
 console.log('robots.txt, sitemap.xml and the play/ page tags written');
 const pages = fs.readdirSync(OUT).filter((f) => f.endsWith('.html')).map((f) => path.join(OUT, f));

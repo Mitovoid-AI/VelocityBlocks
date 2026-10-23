@@ -102,44 +102,8 @@
   // No browser "Install app" banner on the website either: the downloads are the apps.
   window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); });
 
-  // ------------------------------------------------------------ release version and file sizes
-  // The links always point at releases/latest/download/<fixed name>; this only fills in the version and the
-  // [data-asset-size="<file name>"] sizes. Offline, rate-limited (60 requests an hour per IP) or blocked:
-  // the static text stays.
-  function showRelease(info) {
-    if (!info) return;
-    var sizes = info.sizes || {};
-    document.querySelectorAll("[data-asset-size]").forEach(function (el) {
-      var s = sizes[el.getAttribute("data-asset-size")];
-      if (s) el.textContent = s;
-    });
-    if (info.version) document.querySelectorAll("[data-release-version]").forEach(function (el) { el.textContent = " · " + info.version; });
-  }
-  (function releaseInfo() {
-    var KEY = "vb-site-release-info";
-    try {
-      var cached = JSON.parse(sessionStorage.getItem(KEY) || "null");
-      if (cached && Date.now() - cached.at < 3600000) return showRelease(cached);
-    } catch (e) {}
-    if (!window.fetch) return;
-    var ctl = window.AbortController ? new AbortController() : null;
-    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 6000);
-    fetch("https://api.github.com/repos/Mitovoid-AI/VelocityBlocks/releases/latest", {
-      headers: { Accept: "application/vnd.github+json" },
-      signal: ctl ? ctl.signal : undefined
-    }).then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    }).then(function (rel) {
-      var info = { at: Date.now(), sizes: {} };
-      ((rel && rel.assets) || []).forEach(function (a) {
-        if (a && a.name && a.size) info.sizes[a.name] = (a.size / 1e6 >= 20 ? Math.round(a.size / 1e6) : (a.size / 1e6).toFixed(1)) + " MB";
-      });
-      if (rel && /^v?\d+\.\d+\.\d+$/.test(rel.tag_name || "")) info.version = "v" + rel.tag_name.replace(/^v/, "");
-      showRelease(info);
-      try { sessionStorage.setItem(KEY, JSON.stringify(info)); } catch (e) {}
-    }).catch(function () {}).then(function () { clearTimeout(timer); });
-  })();
+  // Release version and file sizes: filled in when the site is built (scripts/build-site.mjs), so visitors'
+  // browsers never contact the release host.
 
   // ------------------------------------------------------------ card deck
   var deck = document.getElementById("deck");

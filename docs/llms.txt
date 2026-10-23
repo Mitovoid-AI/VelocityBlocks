@@ -1,6 +1,6 @@
 # Velocity Blocks
 
-> A free, single-player time-attack racing game built from road blocks, for Android, Windows, iPhone/iPad (in Safari) and any web browser. Take every checkpoint, shave off tenths and beat the hidden Author time on each track. No ads, no account, plays offline. Open source (MIT).
+> A free, single-player time-attack racing game built from road blocks, for Android, Windows, iPhone/iPad (in Safari) and any web browser. Take every checkpoint, shave off tenths and beat the hidden Author time on each track. No ads, no account, plays offline.
 
 ## Facts
 
@@ -15,6 +15,5 @@
 
 - [Website](https://velocityblocks.vercel.app/): features, screenshots, trailer and downloads
 - [Play in the browser](https://velocityblocks.vercel.app/play/): the full game, no download
-- [Downloads (latest release)](https://github.com/Mitovoid-AI/VelocityBlocks/releases/latest): Android APK and Windows files
+- [Downloads](https://velocityblocks.vercel.app/#download): Android APK and Windows files
 - [Privacy policy](https://velocityblocks.vercel.app/privacy.html): the game collects no personal data
-- [Source code](https://github.com/Mitovoid-AI/VelocityBlocks): MIT license
