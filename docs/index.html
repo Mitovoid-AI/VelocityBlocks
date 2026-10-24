@@ -103,6 +103,10 @@
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,700;0,800;0,900;1,900&display=swap" onload="this.onload=null;this.rel='stylesheet'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,700;0,800;0,900;1,900&display=swap"></noscript>
 <link rel="stylesheet" href="styles.css">
+<!-- The hero's gameplay still is the largest thing on the first screen: fetched right after the stylesheet,
+     at the same size the <img> picks. It must stay at least as large as the video's frames, or the browser
+     counts the loop, which starts 1.5 s after load, as the page's main content. -->
+<link rel="preload" as="image" href="video/hero-poster.webp" imagesrcset="video/hero-poster-640.webp 640w, video/hero-poster.webp 1280w" imagesizes="100vw">
 <!-- vercel-analytics -->
 <script>(function () {
   var h = location.hostname;
@@ -128,33 +132,34 @@
 </header>
 
 <main id="main">
-<section class="hero">
+<!-- The first screen is real gameplay: a still frame paints first (it is the page's largest image), then
+     script.js swaps in a 3-second muted loop once the page has loaded, unless the visitor asked for reduced
+     motion or less data. It belongs to this section only and scrolls away with it. -->
+<section class="hero has-bg">
+  <div class="hero-bg" aria-hidden="true">
+    <img src="video/hero-poster.webp" srcset="video/hero-poster-640.webp 640w, video/hero-poster.webp 1280w" sizes="100vw" alt="" width="1280" height="720" fetchpriority="high" decoding="async">
+    <video id="hero-video" muted loop playsinline preload="none" data-src-720="video/hero-720.mp4" data-src-480="video/hero-480.mp4"></video>
+  </div>
   <div class="wrap">
     <div class="hero-text">
-      <img class="hero-icon" src="icon.svg" alt="" width="88" height="88">
-      <p class="kicker">Free racing game for phone, PC and browser</p>
+      <p class="kicker">Free 3D racing game</p>
       <h1 aria-label="Build it. Drive it. Beat the author.">
         <span class="line" aria-hidden="true"><span class="w" style="--i:0">Build</span> <span class="w" style="--i:1">it.</span></span>
         <span class="line" aria-hidden="true"><span class="w" style="--i:2">Drive</span> <span class="w" style="--i:3">it.</span></span>
         <span class="line grad" aria-hidden="true"><span class="w" style="--i:4">Beat</span> <span class="w" style="--i:5">the</span> <span class="w" style="--i:6">author.</span></span>
       </h1>
       <p class="lede">Velocity Blocks is a time-attack racer made of road blocks. Take every checkpoint, shave off tenths, and chase the hidden Author medal across 24 tracks. Then build your own.</p>
-      <!-- The Download button opens a menu of every platform, this device's first (script.js); without
-           JavaScript it jumps to the downloads section. The [data-for] lines below follow the device. -->
+      <!-- Where it runs, and the way to get it there: the APK, the Windows installer, or the game in the browser
+           (iPhone and iPad play it in Safari). script.js highlights this device's badge. -->
+      <nav class="plats-row" aria-label="Get the game">
+        <a class="plat-link" data-plat="android" href="https://velocityblocks.vercel.app/download/VelocityBlocks.apk" title="Download the Android APK"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>Android</a>
+        <a class="plat-link" data-plat="windows" href="https://velocityblocks.vercel.app/download/VelocityBlocks-Setup.exe" title="Download the Windows installer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Windows</a>
+        <a class="plat-link" data-plat="ios" href="play/" title="Play on iPhone or iPad in Safari"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M12 18h.01"/></svg>iPhone &amp; iPad</a>
+        <a class="plat-link" data-plat="other" href="play/" title="Play in your browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>Browser</a>
+      </nav>
       <div class="cta">
-        <div class="dl-wrap">
-          <a class="pill light big" id="hero-dl" href="#download" aria-haspopup="menu" aria-expanded="false" aria-controls="dl-menu"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3.2-3.2M8 10 4.8 6.8M2.5 13.5h11"/></svg>Download<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></a>
-          <div class="dl-menu" id="dl-menu" role="menu" aria-label="Choose your device" hidden>
-            <a class="dl-item" role="menuitem" data-plat="android" href="https://velocityblocks.vercel.app/download/VelocityBlocks.apk"><span class="dl-ic" style="--t:#b6f36b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg></span><span class="dl-txt"><strong>Android</strong><small>APK · <span data-asset-size="VelocityBlocks.apk">8.3 MB</span></small></span></a>
-            <a class="dl-item" role="menuitem" data-plat="windows" href="https://velocityblocks.vercel.app/download/VelocityBlocks-Setup.exe"><span class="dl-ic" style="--t:#6ee7ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><span class="dl-txt"><strong>Windows installer</strong><small>Windows 10 and 11 · <span data-asset-size="VelocityBlocks-Setup.exe">106 MB</span></small></span></a>
-            <a class="dl-item" role="menuitem" data-plat="windows-portable" href="https://velocityblocks.vercel.app/download/VelocityBlocks-Portable.exe"><span class="dl-ic" style="--t:#6ee7ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><span class="dl-txt"><strong>Windows portable .exe</strong><small>Runs without installing · <span data-asset-size="VelocityBlocks-Portable.exe">106 MB</span></small></span></a>
-            <a class="dl-item" role="menuitem" data-plat="ios" href="play/"><span class="dl-ic" style="--t:#ffd75e"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M12 18h.01"/></svg></span><span class="dl-txt"><strong>iPhone and iPad</strong><small>Play in Safari, add to Home Screen</small></span></a>
-            <a class="dl-item" role="menuitem" data-plat="other" href="play/"><span class="dl-ic" style="--t:#ff9a6b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg></span><span class="dl-txt"><strong>Play in your browser</strong><small>Mac, Linux, Chromebook, any computer</small></span></a>
-            <a class="dl-all" role="menuitem" href="#download">All downloads and install help</a>
-          </div>
-        </div>
         <!-- Straight into the game, nothing to install: the quickest first step for a new visitor. -->
-        <a class="pill dark big play-now" href="play/"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.8v10.4a.6.6 0 0 0 .9.5l8.2-5.2a.6.6 0 0 0 0-1L5.4 2.3a.6.6 0 0 0-.9.5Z"/></svg>Play in browser</a>
+        <a class="pill light big play-now" href="play/"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.8v10.4a.6.6 0 0 0 .9.5l8.2-5.2a.6.6 0 0 0 0-1L5.4 2.3a.6.6 0 0 0-.9.5Z"/></svg>Play in browser</a>
         <p class="cta-meta" data-for="android">Free · Android 6.0+ · <span data-asset-size="VelocityBlocks.apk">8.3 MB</span><span data-release-version> · v1.2.2</span></p>
         <p class="cta-meta" data-for="windows" hidden>Free · Windows 10 and 11, 64-bit · <span data-asset-size="VelocityBlocks-Setup.exe">106 MB</span><span data-release-version> · v1.2.2</span></p>
         <p class="cta-meta" data-for="ios" hidden>Free · iPhone and iPad, in Safari · nothing to install</p>
@@ -163,9 +168,13 @@
       <p class="fine" data-for="android">Android may block installs from unknown sources. If it does, tap <strong>Settings</strong>, allow your browser (or file manager) to install apps, go back and tap <strong>Install</strong>.</p>
       <p class="fine" data-for="windows" hidden>Windows may say <strong>Windows protected your PC</strong> because the app isn't signed yet. Click <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
       <p class="fine" data-for="ios" hidden>Open it in Safari, tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>: it opens full-screen like an app. Hold the phone sideways.</p>
-      <p class="fine alt">Also for <a href="#download">Android, Windows, iPhone and iPad</a>, or <a href="play/">play it in your browser</a>.</p>
     </div>
+  </div>
+</section>
 
+<section id="inside" class="inside">
+  <div class="wrap" data-reveal>
+    <h2>What's in the game</h2>
     <div class="deck-wrap">
       <div class="deck" id="deck" tabindex="0" role="region" aria-roledescription="carousel" aria-label="What's in the game. Tap or swipe the cards, or use the arrow keys.">
         <article class="card" style="--c:#ff9a6b;--s:#2f6fd6" data-shape="blocks" aria-roledescription="slide">
@@ -385,30 +394,6 @@
   </div>
 </section>
 
-<section id="free">
-  <div class="wrap" data-reveal>
-    <h2>Free, and the Full Game</h2>
-    <p class="intro">The APK, the Windows app and the browser version have everything unlocked. The Google Play version will be free too, with one optional one-time purchase, the Full Game, that opens the rest. No subscription and no ads in any of them.</p>
-    <div class="table-scroll" tabindex="0" role="region" aria-label="What each version includes">
-      <table class="plans">
-        <thead>
-          <tr><th scope="col">What you get</th><th scope="col" class="c">APK, Windows, browser</th><th scope="col" class="c">Google Play</th><th scope="col" class="c">Play + Full Game</th></tr>
-        </thead>
-        <tbody>
-          <tr><th scope="row">Stadium campaign, A01 to A12</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
-          <tr><th scope="row">First Desert and Water tracks, D01 and W01</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
-          <tr><th scope="row">D02 to D06 and W02 to W06</th><td class="c yes">Yes</td><td class="c no">No</td><td class="c yes">Yes</td></tr>
-          <tr><th scope="row">The car, with four bodies</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
-          <tr><th scope="row">The bike and the truck</th><td class="c yes">Yes</td><td class="c no">No</td><td class="c yes">Yes</td></tr>
-          <tr><th scope="row">Realistic models</th><td class="c yes">Yes</td><td class="c no">No</td><td class="c yes">Yes</td></tr>
-          <tr><th scope="row">Track editor and My tracks</th><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
-          <tr><th scope="row">Price</th><td class="c">Free</td><td class="c">Free</td><td class="c">Pay once</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="fine">Why give it away here? The code is MIT, so anyone can build the whole game for free. The Play purchase pays for the convenience of the store build and supports development.</p>
-  </div>
-</section>
 
 <section id="privacy">
   <div class="wrap" data-reveal>
@@ -463,7 +448,6 @@
     <a href="#vehicles">Vehicles and nitro</a>
     <a href="#editor">Track editor</a>
     <a href="#play">Play in your browser</a>
-    <a href="#free">Free and Full Game</a>
     <a href="#privacy">Privacy</a>
     <a href="#download">Download</a>
   </nav>

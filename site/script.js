@@ -35,6 +35,56 @@
   var mine = document.querySelector('.plat[data-plat="' + platform + '"]');
   if (mine) mine.classList.add("mine");
 
+  // The hero badge for this device (Android, Windows, iPhone, or Browser for everything else) stands out.
+  var myBadge = document.querySelector('.plat-link[data-plat="' + platform + '"]');
+  if (myBadge) myBadge.classList.add("mine");
+
+  // The floating Menu / Download bar stays out of the way while the hero (with its own badges and Play button)
+  // is on screen, and slides in once it is scrolled past.
+  (function dockAway() {
+    var dock = document.querySelector(".dock");
+    var hero = document.querySelector(".hero");
+    if (!dock || !hero || !("IntersectionObserver" in window)) return;
+    new IntersectionObserver(function (entries) {
+      dock.classList.toggle("away", entries[0].isIntersecting);
+    }).observe(hero);
+  })();
+
+  // ------------------------------------------------------------ hero gameplay loop
+  // The hero's still frame is already on screen; 1.5 s after the page has loaded, a 3-second muted loop (465 KB, or
+  // 207 KB on narrow screens) fades in over it. Skipped for reduced motion, Data Saver and 2G, and paused
+  // whenever the hero is scrolled out of view.
+  (function heroVideo() {
+    var v = document.getElementById("hero-video");
+    if (!v || reduce) return;
+    var c = navigator.connection || {};
+    if (c.saveData || /(^|-)2g$/.test(c.effectiveType || "")) return;
+    var visible = true;
+    function play() { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+    function start() {
+      v.src = window.innerWidth < 760 ? v.getAttribute("data-src-480") : v.getAttribute("data-src-720");
+      v.addEventListener("playing", function () { v.classList.add("on"); }, { once: true });
+      if (visible) play();
+    }
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (entries) {
+        visible = entries[0].isIntersecting;
+        if (!v.src) return;
+        if (visible) play(); else v.pause();
+      }).observe(v);
+    }
+    // Well after the first paint and when the browser is idle, so the loop never competes with the page's
+    // own files on a slow connection.
+    function later() {
+      setTimeout(function () {
+        if (window.requestIdleCallback) window.requestIdleCallback(start, { timeout: 1500 });
+        else start();
+      }, 1500);
+    }
+    if (document.readyState === "complete") later();
+    else window.addEventListener("load", later);
+  })();
+
   // ------------------------------------------------------------ Download menu
   // The hero button opens a menu of every platform instead of starting a download. Without this script it
   // is a plain link to #download.

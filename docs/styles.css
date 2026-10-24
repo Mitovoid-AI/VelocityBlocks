@@ -84,9 +84,41 @@ h1 { font: 900 clamp(46px, 7.4vw, 78px)/0.95 var(--display); letter-spacing: -0.
 h1 .line { display: block; }
 h1 .grad .w { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-style: italic; padding-right: 0.06em; }
 h1 .w { display: inline-block; }
-.js h1 .w { opacity: 0; transform: translateY(0.45em); animation: rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; animation-delay: calc(70ms * var(--i)); }
+.js h1 .w { opacity: 0; transform: translateY(0.35em); animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; animation-delay: calc(35ms * var(--i)); }
 @keyframes rise { to { opacity: 1; transform: none; } }
-.kicker { margin: 0 0 12px; font: 800 13px/1.3 var(--text); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.kicker { margin: 0 0 12px; font: 800 15px/1.3 var(--text); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+/* Hero over gameplay: always the dark palette (the video is dark whatever the site theme), the full first
+   screen under the header, the text on a gradient that keeps it readable over the moving road. */
+.hero.has-bg {
+  --bg: #0b1020; --surface: #121a33; --surface-2: #1a2342; --surface-3: #243055; --line: #243055;
+  --ink: #eef2ff; --ink-2: #ccd5ee; --ink-3: #a9b4d4; --accent: #3fe0ff; --pill: #f5f7ff; --pill-hover: #ffffff;
+  --pill-ink: #0b1020; --grad: linear-gradient(90deg, #ff6a3d, #ffcf3f 45%, #3fe0ff); --dock-shadow: 0 6px 24px rgb(0 0 0 / 45%);
+  position: relative; isolation: isolate; overflow: hidden; color: var(--ink); background: var(--bg);
+  min-height: calc(100svh - 64px); display: flex; align-items: center; padding: 40px 0 72px;
+}
+.hero.has-bg .wrap { display: block; width: 100%; }
+.hero.has-bg .hero-text { max-width: 640px; }
+.hero-bg { position: absolute; inset: 0; z-index: -1; }
+.hero-bg img, .hero-bg video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.hero-bg video { opacity: 0; transition: opacity 0.6s ease; }
+.hero-bg video.on { opacity: 1; }
+.hero-bg::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(0deg, #0b1020 0%, rgb(11 16 32 / 0%) 22%), rgb(11 16 32 / 62%); }
+@media (min-width: 900px) {
+  .hero-bg::after { background: linear-gradient(0deg, #0b1020 0%, rgb(11 16 32 / 0%) 18%),
+    linear-gradient(90deg, rgb(11 16 32 / 90%) 0%, rgb(11 16 32 / 62%) 40%, rgb(11 16 32 / 8%) 72%, rgb(11 16 32 / 0%) 100%); }
+}
+.hero.has-bg h1, .hero.has-bg .lede { text-shadow: 0 2px 18px rgb(0 0 0 / 45%); }
+.plats-row { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 24px; }
+.plat-link { display: inline-flex; align-items: center; gap: 7px; padding: 9px 15px 9px 12px; border-radius: 999px;
+  background: rgb(18 26 51 / 72%); border: 1px solid rgb(255 255 255 / 16%); font: 700 14px/1 var(--text); color: var(--ink);
+  text-decoration: none; transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease; }
+.plat-link svg { width: 16px; height: 16px; color: var(--accent); }
+.plat-link:hover { background: rgb(36 48 85 / 90%); border-color: var(--accent); transform: translateY(-1px); }
+.plat-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.plat-link.mine { background: var(--pill); color: var(--pill-ink); border-color: var(--pill); }
+.plat-link.mine svg { color: var(--pill-ink); }
+.inside .deck-wrap { margin: 8px auto 0; }
 .lede {font-size: 18px; color: var(--ink-2); margin: 0 0 26px; max-width: 31em; }
 .cta { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; }
 .cta-meta { color: var(--ink-3); font-size: 14px; margin: 0; flex-basis: 100%; }
@@ -244,7 +276,10 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; border-top: 1px so
 footer a { color: var(--ink-2); }
 
 /* Floating dock and menu */
-.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: center; gap: 10px; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, var(--bg) 55%, var(--bg-clear)); pointer-events: none; }
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: center; gap: 10px; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, var(--bg) 55%, var(--bg-clear)); pointer-events: none; transition: transform 0.25s ease, opacity 0.25s ease; }
+/* Hidden while the hero, with its own badges and Play button, is on screen (script.js): it never covers them. */
+.dock.away { transform: translateY(110%); opacity: 0; }
+.dock.away .pill { pointer-events: none; }
 .dock .pill { pointer-events: auto; box-shadow: var(--dock-shadow); }
 dialog.menu { border: 0; padding: 0; margin: auto auto 90px; width: min(420px, calc(100% - 32px)); max-height: calc(100% - 110px); overflow: auto; background: var(--surface); color: var(--ink); border-radius: 24px; box-shadow: var(--dock-shadow); }
 dialog.menu::backdrop { background: var(--backdrop); }
