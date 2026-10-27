@@ -37,6 +37,7 @@ export function updatePopupHtml(info: UpdateInfo, current: string, inApp = false
       <button class="btn small" data-act="back">Later</button>
       <button class="btn small" data-act="skip">Skip this version</button>
     </div>
+    ${info.page ? '<button class="btn small upd-full" data-act="notes">Full release notes</button>' : ''}
   </div>`;
 }
 
@@ -187,6 +188,10 @@ function openUpdatePopup(checker: UpdateChecker, info: UpdateInfo, inApp: boolea
         toast('Update cancelled', 2200);
       }
       close();
+    },
+    // The release page in the browser; the pop-up stays.
+    notes: () => {
+      if (info.page) void openExternalUrl(info.page);
     },
     skip: () => {
       checker.skip(info.tag);

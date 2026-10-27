@@ -42,8 +42,6 @@ export class Hud {
   private deltaVal = this.delta.querySelector<HTMLElement>('.hud-delta-val')!;
   private deltaLog = this.delta.querySelector<HTMLElement>('.hud-delta-log')!;
   private deltaKey = '';
-  private ghosts = $('#hud-ghosts');
-  private ghostEls: HTMLElement[] = [];
 
   /**
    * The gap to the chased ghost (null hides the panel): `vs` names it in its colour, `ms` is the live gap
@@ -63,25 +61,6 @@ export class Hud {
       .slice(0, 4)
       .map((d, i) => `<div class="${d <= 0 ? 'ahead' : 'behind'}">CP${log.length - i} ${esc(formatDelta(d))}</div>`)
       .join('');
-  }
-
-  /** One tag per ghost car at screen position x, y (CSS px); `edge`: pinned to the screen edge (off screen or behind). */
-  setGhostTags(tags: readonly { x: number; y: number; text: string; color: string; edge: boolean; target: boolean }[]): void {
-    while (this.ghostEls.length < tags.length) {
-      const el = document.createElement('div');
-      this.ghosts.appendChild(el);
-      this.ghostEls.push(el);
-    }
-    this.ghostEls.forEach((el, i) => {
-      const t = tags[i];
-      el.style.display = t ? '' : 'none';
-      if (!t) return;
-      if (el.textContent !== t.text) el.textContent = t.text;
-      el.style.color = t.color;
-      el.className = `hud-ghost${t.edge ? ' edge' : ''}${t.target ? ' target' : ''}`;
-      // Centred on the point (above the car, or on the edge).
-      el.style.transform = `translate(${Math.round(t.x)}px, ${Math.round(t.y)}px) translate(-50%, -50%)`;
-    });
   }
 
   show(v: boolean): void {

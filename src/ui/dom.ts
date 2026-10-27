@@ -140,10 +140,10 @@ export function toast(msg: string, ms = 2200): void {
 }
 
 /** Save text as a file for the user. */
-export function downloadText(name: string, text: string): void {
+export function downloadText(name: string, text: string, mime = 'application/json'): void {
   // Android WebView silently drops <a download> (Capacitor sets no DownloadListener), so the
   // app saves through the OS "Save as" screen instead.
-  saveTextFile(name, text).then(
+  saveTextFile(name, text, mime).then(
     (r) => {
       if (r === 'unsupported') downloadViaLink(name, text);
       else if (r === 'saved') toast(`Saved ${name}`);

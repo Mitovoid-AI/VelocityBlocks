@@ -29,6 +29,8 @@ async function boot(): Promise<App | null> {
     const app = new App(ads);
     app.start();
     // Autoplay test runs drive the app from outside (DevTools on a device or emulator): see raceMode.ts AUTOPLAY.
+    // The Windows app opens a double-clicked .vbst file through this (desktop/main.cjs).
+    (window as unknown as { vbOpenRun: (text: string) => void }).vbOpenRun = (text) => void app.openSharedRun(text);
     if (AUTOPLAY) {
       void loadProLaps();
       (window as unknown as { vbTest: unknown }).vbTest = { app, campaign, proLapFor };

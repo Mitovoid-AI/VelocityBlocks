@@ -4,9 +4,14 @@
 //
 // - The game is served from app://game/ (not file://, where module scripts and fetch() of the models fail);
 //   its records live in that origin's localStorage, so they survive updates and are shared by both builds.
+// - A saved run (.vbst) double-clicked (the installer registers the type), or a velocityblocks:// link (the browser
+//   game's "Open in the app"; registered at every start), opens in the game; one opened while it runs goes to
+//   the running window.
 // - F11 toggles full screen. Links to other sites open in the default browser; the window never leaves the game.
-// - Once a day it asks GitHub for the latest release. The installed app downloads the new installer (progress
-//   on the taskbar button) and runs it; the portable .exe opens the download in the browser.
+// - At every start (at most once an hour) it asks GitHub for the latest release and offers a newer one with its
+//   release notes (the player summary) and Update now / Later / Skip this version / Full release notes. The
+//   installed app downloads the new installer (progress on the taskbar button) and runs it; the portable .exe
+//   opens the download in the browser.
 
 const { app, BrowserWindow, Menu, dialog, net, protocol, shell } = require('electron');
 const fs = require('node:fs');
@@ -18,7 +23,11 @@ const REPO = 'Mitovoid-AI/VelocityBlocks';
 const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;
 const ORIGIN = 'app://game';
 const WWW = path.join(__dirname, 'www');
-const DAY_MS = 24 * 60 * 60 * 1000;
+/** Checks at every start, but at most one per hour (GitHub allows 60 unauthenticated requests an hour). */
+const CHECK_INTERVAL_MS = 60 * 60 * 1000;
+/** Release notes in the prompt: at most this many characters (the app's update pop-up uses the same). */
+const NOTES_MAX = 600;
+const RELEASE_PAGE_PREFIX = `https://github.com/${REPO}/releases/`;
 /** Set by electron-builder's portable launcher: this is the single .exe, not an installed copy. */
 const PORTABLE = !!process.env.PORTABLE_EXECUTABLE_FILE;
 
@@ -43,6 +52,40 @@ function serveGame() {
 
 function openOutside(url) {
   if (/^https:\/\//i.test(url)) void shell.openExternal(url);
+}
+
+/** Links the browser game's "Open in the app" makes (velocityblocks://run#run=...): Windows starts this app with them. */
+const PROTOCOL = 'velocityblocks';
+
+/** The run among command-line arguments: a velocityblocks:// link, or a double-clicked .vbst file's text. */
+function runArg(argv) {
+  const link = argv.slice(1).find((a) => a.toLowerCase().startsWith(`${PROTOCOL}:`));
+  if (link) return link.length < 200_000 ? link : null;
+  const file = argv.slice(1).find((a) => /\.vbst$/i.test(a) && fs.existsSync(a));
+  if (!file) return null;
+  try {
+    return fs.statSync(file).size > 2_000_000 ? null : fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** Register velocityblocks:// links for this user: the portable .exe by its own path (it runs from a temp copy). */
+function registerProtocol() {
+  try {
+    if (PORTABLE) app.setAsDefaultProtocolClient(PROTOCOL, process.env.PORTABLE_EXECUTABLE_FILE, []);
+    else if (app.isPackaged) app.setAsDefaultProtocolClient(PROTOCOL);
+  } catch {
+    /* links then open the browser game only */
+  }
+}
+
+/** Open a run (a link or a .vbst file's text) in the game: it sets window.vbOpenRun once it is up (src/main.ts). */
+function openRun(text) {
+  if (!text || !win) return;
+  void win.webContents.executeJavaScript(
+    `(function t(n) { if (window.vbOpenRun) window.vbOpenRun(${JSON.stringify(text)}); else if (n < 80) setTimeout(() => t(n + 1), 250); })(0)`,
+  );
 }
 
 function createWindow() {
@@ -73,6 +116,7 @@ function createWindow() {
       win.setFullScreen(!win.isFullScreen());
     }
   });
+  win.webContents.once('did-finish-load', () => openRun(runArg(process.argv)));
   win.once('ready-to-show', () => {
     win.maximize();
     win.show();
@@ -89,6 +133,30 @@ function parseVersion(s) {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)] : null;
 }
 const newer = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+/**
+ * The player summary of release notes as plain text: release-notes/X.Y.Z.md before its first heading (or all of
+ * it), light Markdown undone, at most NOTES_MAX characters. Same rules as src/platform/updates.ts plainNotes.
+ */
+function noteSummary(body) {
+  if (typeof body !== 'string') return '';
+  const text = body.replace(/\r\n?/g, '\n');
+  let t = (text.split(/^#{1,6}\s/m)[0].trim() || text)
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/`([^`\n]*)`/g, '$1')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (t.length > NOTES_MAX) {
+    const cut = t.slice(0, NOTES_MAX);
+    const sp = cut.search(/\s\S*$/);
+    t = `${(sp > NOTES_MAX * 0.6 ? cut.slice(0, sp) : cut).trimEnd()}…`;
+  }
+  return t;
+}
 
 const stateFile = () => path.join(app.getPath('userData'), 'update-check.json');
 function loadState() {
@@ -109,7 +177,7 @@ function saveState(s) {
 async function checkForUpdate() {
   const state = loadState();
   const now = Date.now();
-  if (state.lastCheck && now - state.lastCheck < DAY_MS && now >= state.lastCheck) return;
+  if (state.lastCheck && now - state.lastCheck < CHECK_INTERVAL_MS && now >= state.lastCheck) return;
   saveState({ ...state, lastCheck: now });
   let release;
   try {
@@ -130,16 +198,27 @@ async function checkForUpdate() {
   if (!asset || typeof asset.browser_download_url !== 'string' || !asset.browser_download_url.startsWith(DOWNLOAD_PREFIX)) return;
   if (!win) return;
   const version = latest.join('.');
-  const { response } = await dialog.showMessageBox(win, {
-    type: 'info',
-    title: 'Update available',
-    message: `Velocity Blocks ${version} is available`,
-    detail: `You have ${app.getVersion()}. ${PORTABLE ? 'Download the new .exe in your browser and run it instead of this one.' : 'It downloads here and then installs.'} Your records and tracks are kept.`,
-    buttons: [PORTABLE ? 'Download' : 'Update now', 'Later', 'Skip this version'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-  });
+  const notes = noteSummary(release.body);
+  const page = typeof release.html_url === 'string' && release.html_url.startsWith(RELEASE_PAGE_PREFIX) ? release.html_url : null;
+  const how = PORTABLE ? 'Download the new .exe in your browser and run it instead of this one.' : 'It downloads here and then installs.';
+  const buttons = [PORTABLE ? 'Download' : 'Update now', 'Later', 'Skip this version'];
+  if (page) buttons.push('Full release notes');
+  let response;
+  // "Full release notes" opens the page and asks again, so the choice is still the player's.
+  for (;;) {
+    ({ response } = await dialog.showMessageBox(win, {
+      type: 'info',
+      title: 'Update available',
+      message: `Velocity Blocks ${version} is available`,
+      detail: `${notes ? `${notes}\n\n` : ''}You have ${app.getVersion()}. ${how} Your records and tracks are kept.`,
+      buttons,
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    }));
+    if (response !== 3 || !page) break;
+    void shell.openExternal(page);
+  }
   if (response === 2) return saveState({ ...loadState(), skipped: release.tag_name });
   if (response !== 0) return;
   if (PORTABLE) return void shell.openExternal(asset.browser_download_url);
@@ -193,13 +272,16 @@ async function downloadAndInstall(asset, version) {
 
 // ------------------------------------------------------------------ App
 
-app.on('second-instance', () => {
+app.on('second-instance', (_e, argv) => {
   if (!win) return;
   if (win.isMinimized()) win.restore();
   win.focus();
+  // A .vbst double-clicked or a velocityblocks:// link opened while the game runs: open it here.
+  openRun(runArg(argv));
 });
 
 app.whenReady().then(() => {
+  registerProtocol();
   serveGame();
   createWindow();
 });

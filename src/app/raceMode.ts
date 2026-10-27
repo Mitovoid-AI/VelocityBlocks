@@ -9,7 +9,6 @@ import { drivenLineData } from '../game/drivenLine';
 import { autoChase, GhostDelta, RouteProgress } from '../game/ghostDelta';
 import { proGhostJob, proLapFor, proPilot, stretchGhost } from '../game/proLaps';
 import { traceRoute } from '../track/route';
-import * as THREE from 'three';
 import { FLIP_RESPAWN_TICKS, FLIP_WARN_TICKS, quantise, RaceSession, type RaceEvent } from '../game/race';
 import { lineJobs, type RacingLineData } from '../game/racingLine';
 import { CHASE_TARGETS, type ChaseTarget, type Settings } from '../game/storage';
@@ -90,19 +89,10 @@ export const AUTOPLAY = typeof location !== 'undefined' && /[?&]autoplay\b/.test
 /** `?autoplay=base`: the untuned pro driver (slower than the author lap), to watch it chase the medal ghosts. */
 const AUTOPLAY_BASE = typeof location !== 'undefined' && /[?&]autoplay=base\b/.test(location.search);
 
-/** A shared run's ghost (App.openSharedRun). */
+/** A shared run's ghost (App.openSharedRun), in the gap panel. */
 const SHARED_TAG_COLOR = '#ff9d2e';
-/** The personal-best ghost's tag colour (its car is the ghost blue). */
+/** The personal-best ghost in the gap panel (its car is the ghost blue). */
 const PB_TAG_COLOR = '#7fd8ff';
-/** Ghost tags float this high (m) over the ghost car. */
-const TAG_LIFT = 2.2;
-/** Screen margin (CSS px) of tags pinned to the edge, and the spacing of stacked ones. */
-const TAG_EDGE = 28;
-const TAG_STACK = 24;
-/** Tags of ghosts behind the camera sit this far (CSS px) from the top, under the race pills and split. */
-const TAG_BEHIND_Y = 165;
-
-const clampNum = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /** A ghost raced against: its tag, its car (none while the PB ghost's own car stands in), and its time gaps. */
 interface Rival {
@@ -190,7 +180,6 @@ export class RaceMode implements Mode {
   /** Gaps (ms) to the chased ghost at each checkpoint passed this run, the latest first. */
   private deltaLog: number[] = [];
   private cpSeen = 0;
-  private readonly tagVec = new THREE.Vector3();
 
   constructor(
     private readonly app: App,
@@ -528,7 +517,10 @@ export class RaceMode implements Mode {
     return null;
   }
 
-  /** Every frame: the live gap and checkpoint log against the chased ghost, and a tag on every ghost. */
+  /**
+   * Every frame: the live gap and checkpoint log against the chased ghost. No tag floats over the ghost: the
+   * gap panel says the same, and a moving label in the middle of the road distracts from driving.
+   */
   private updateRivals(): void {
     const hud = this.app.hud;
     const target = this.chased();
@@ -543,36 +535,6 @@ export class RaceMode implements Mode {
       this.cpSeen++;
     }
     hud.setDelta(target && !this.resultsShown ? { name: target.name, color: target.color } : null, target ? gap(target) : 0, this.deltaLog);
-    // Tags: projected over each ghost; off screen or behind the camera, pinned to the nearest edge (behind: the bottom).
-    const cam = this.app.world.camera;
-    const w = this.app.world.renderer.domElement.clientWidth;
-    const h = this.app.world.renderer.domElement.clientHeight;
-    const tick = racing ? this.race.ticks + (this.paused ? 1 : this.acc / DT) : 0;
-    let stacked = 0;
-    const tags = this.resultsShown
-      ? []
-      : this.rivals.map((r) => {
-          const p = ghostPose(r.ghost, tick, this.ghostAt);
-          const v = this.tagVec.set(p?.pos.x ?? 0, (p?.pos.y ?? 0) + TAG_LIFT, p?.pos.z ?? 0);
-          const behind = v.clone().applyMatrix4(cam.matrixWorldInverse).z > 0;
-          v.project(cam);
-          let x = ((v.x + 1) / 2) * w;
-          let y = ((1 - v.y) / 2) * h;
-          let edge = behind || x < TAG_EDGE || x > w - TAG_EDGE || y < TAG_EDGE || y > h - TAG_EDGE;
-          if (behind) {
-            // Top centre, clear of the touch controls (steering bottom left, pedals bottom right).
-            x = clampNum(w - x, w * 0.35, w * 0.65);
-            y = TAG_BEHIND_Y + stacked++ * TAG_STACK;
-          } else if (edge) {
-            x = clampNum(x, TAG_EDGE * 3, w - TAG_EDGE * 3);
-            y = clampNum(y, TAG_EDGE + 40, h - TAG_EDGE);
-          }
-          const d = gap(r);
-          // Where the ghost is from the player: ahead (up arrow) or behind (down arrow), and by how long.
-          const text = racing ? `${r.name} ${d > 0 ? '\u25B2' : '\u25BC'} ${(Math.abs(d) / 1000).toFixed(2)}` : r.name;
-          return { x, y, text, color: r.color, edge, target: r === target };
-        });
-    hud.setGhostTags(tags);
   }
 
   private toggleMedalGhosts(): void {
@@ -1128,7 +1090,6 @@ export class RaceMode implements Mode {
     this.proJob = null;
     this.disposeMedalCars();
     this.app.hud.setDelta(null, 0, []);
-    this.app.hud.setGhostTags([]);
     this.smoke.dispose();
     // Hide it here rather than relying on the next race's setTrack().
     this.app.hud.flipWarning(null);

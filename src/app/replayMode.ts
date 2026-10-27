@@ -11,7 +11,8 @@ import { ghostEndTick, ghostNitro, ghostPose, type Ghost } from '../game/ghost';
 import { INPUT_STRIDE } from '../game/inputLog';
 import { formatTime } from '../game/race';
 import { lineJobs } from '../game/racingLine';
-import { runLink, runOf } from '../game/runShare';
+import { runFile, runFileName, runLink, runOf } from '../game/runShare';
+import { APP_VERSION } from '../platform/appVersion';
 import { shareFile, shareText } from '../platform/native';
 import { RacingLineView } from '../render/racingLine';
 import { TelemetryOverlay } from '../ui/telemetry';
@@ -20,7 +21,7 @@ import type { Action } from '../input/input';
 import { CarView } from '../render/carView';
 import { nearestPoint, traceRoute, type Route } from '../track/route';
 import type { Track } from '../track/track';
-import { showScreen, toast } from '../ui/dom';
+import { downloadText, esc, showScreen, toast } from '../ui/dom';
 import type { App, Mode } from './app';
 import { AUTOPLAY, lineKeyOf, type RaceEntry } from './raceMode';
 
@@ -37,6 +38,8 @@ export interface ReplayOptions {
   note?: string;
   /** A "Race it" button: race the track against this lap. */
   onRace?: () => void;
+  /** An "Open in the app" link (the browser game: velocityblocks://... opens the installed app). */
+  appLink?: string;
 }
 
 /** Heading on the ground plane (rad; grows turning left, the way the yaw rate is signed). */
@@ -81,6 +84,7 @@ export class ReplayMode implements Mode {
   private readonly note: string;
   private alive = true;
   private readonly onRace: (() => void) | null;
+  private readonly appLink: string | null;
 
   constructor(
     private readonly app: App,
@@ -94,6 +98,7 @@ export class ReplayMode implements Mode {
     this.driver = opts.driver ?? app.store.profile.name;
     this.note = opts.note ?? '';
     this.onRace = opts.onRace ?? null;
+    this.appLink = opts.appLink ?? null;
     // The ghost knows the class that drove it.
     this.car = new CarView(app.world.scene, app.playerCarOptions(ghost.vehicle));
     this.route = traceRoute(track);
@@ -115,8 +120,9 @@ export class ReplayMode implements Mode {
         <button class="btn small" data-act="restart">From start</button>
         <button class="btn small" data-act="line">${LINE_LABEL[this.lineShown]}</button>
         <button class="btn small" data-act="video">Share video</button>
-        ${canLink ? '<button class="btn small" data-act="link">Share run</button>' : ''}
+        ${canLink ? '<button class="btn small" data-act="link">Share run</button><button class="btn small" data-act="save">Save run file</button>' : ''}
         ${this.onRace ? '<button class="btn small" data-act="race">Race it</button>' : ''}
+        ${this.appLink ? `<a class="btn small" href="${esc(this.appLink)}">Open in the app</a>` : ''}
         <button class="btn small primary" data-act="exit">Exit replay</button>
       </div>`,
       'editor',
@@ -138,6 +144,7 @@ export class ReplayMode implements Mode {
         },
         video: () => this.recordVideo(),
         link: () => void this.shareLink(),
+        save: () => this.saveRunFile(),
         race: () => this.onRace?.(),
       },
     );
@@ -229,6 +236,14 @@ export class ReplayMode implements Mode {
     const r = await shareText(`${who} ${this.entry.label} run: ${formatTime(this.ghost.time)} in Velocity Blocks. Watch it or race it: ${link}`);
     if (r === 'copied') toast('Link copied', 2000);
     else if (r === 'failed') toast('Could not share the link', 2500);
+  }
+
+  /** Save the run as a .vbst file (a PC has no share sheet): any Velocity Blocks opens it. */
+  private saveRunFile(): void {
+    const run = runOf(this.entry, this.ghost, this.driver);
+    if (!run) return;
+    // octet-stream: Android's "Save as" keeps the .vbst name instead of adding .json.
+    downloadText(runFileName(run), runFile(run, APP_VERSION), 'application/octet-stream');
   }
 
   afterRender(): void {

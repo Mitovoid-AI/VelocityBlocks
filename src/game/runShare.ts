@@ -5,6 +5,10 @@
 // The payload is JSON, deflated and base64url'd into the link's fragment (never sent to a server):
 //   https://velocityblocks.vercel.app/play/#run=<payload>
 // The Android app opens these links itself (AndroidManifest.xml), the browser game reads its own address.
+//
+// The same run also saves as a .vbst file (Velocity Blocks run), for a PC with no share sheet: readable JSON
+// with what it is (track, driver, time, vehicle, date, game version, whether the game that saved it drove it
+// to that time) and the run itself. Opening one checks it again here, whatever the file says.
 
 import { PHYSICS_VERSION } from '../core/constants';
 import { isVehicleClass, type VehicleClass } from '../core/vehicles';
@@ -13,10 +17,12 @@ import { campaign } from '../track/campaign';
 import { Track, type TrackData } from '../track/track';
 import type { Ghost } from './ghost';
 import { decodeInputLog, encodeInputLog, INPUT_STRIDE } from './inputLog';
-import { loggedControls, RaceSession } from './race';
+import { formatTime, loggedControls, RaceSession } from './race';
 
 /** Where shared links point: the browser game, which the app also opens. */
 export const RUN_LINK_BASE = 'https://velocityblocks.vercel.app/play/';
+/** The same run for the installed apps (the browser game's "Open in the app"): velocityblocks://run#run=... */
+export const APP_LINK_BASE = 'velocityblocks://run';
 
 export interface SharedRun {
   v: 1;
@@ -89,23 +95,91 @@ export async function runLink(run: SharedRun): Promise<string> {
 
 /** A run from a link, an address, or the bare payload; null when it is not one. */
 export async function parseRun(text: string): Promise<SharedRun | null> {
-  const m = /(?:[#&?]run=)?([A-Za-z0-9_-]{16,})\s*$/.exec(text.trim());
+  const t = text.trim();
+  // A .vbst file: JSON with the run in it.
+  if (t.startsWith('{')) {
+    try {
+      const f = JSON.parse(t) as Partial<RunFile>;
+      return f.format === RUN_FILE_FORMAT ? checkedRun(f.run) : null;
+    } catch {
+      return null;
+    }
+  }
+  const m = /(?:[#&?]run=)?([A-Za-z0-9_-]{16,})\s*$/.exec(t);
   if (!m) return null;
   try {
     const json = new TextDecoder().decode(await pipe(fromB64url(m[1]), new DecompressionStream('deflate-raw')));
-    const o = JSON.parse(json) as SharedRun;
-    if (o.v !== 1 || typeof o.base !== 'string' || typeof o.inputs !== 'string' || !isVehicleClass(o.vehicle)) return null;
-    if (!o.base.startsWith('c:') && !o.data) return null;
-    return {
-      ...o,
-      walls: o.walls === true,
-      assists: { tc: o.assists?.tc === 'low' ? 'low' : 'normal', ...(o.assists?.analogSteer === true ? { analogSteer: true } : {}) },
-      label: String(o.label ?? ''),
-      driver: String(o.driver ?? '').slice(0, 40),
-    };
+    return checkedRun(JSON.parse(json));
   } catch {
     return null;
   }
+}
+
+/** A run from untrusted JSON (a link or a file): its shape checked and its fields normalised, or null. */
+function checkedRun(x: unknown): SharedRun | null {
+  const o = x as SharedRun | null;
+  if (!o || typeof o !== 'object') return null;
+  if (o.v !== 1 || typeof o.base !== 'string' || typeof o.inputs !== 'string' || !isVehicleClass(o.vehicle)) return null;
+  if (!o.base.startsWith('c:') && !o.data) return null;
+  return {
+    ...o,
+    walls: o.walls === true,
+    assists: { tc: o.assists?.tc === 'low' ? 'low' : 'normal', ...(o.assists?.analogSteer === true ? { analogSteer: true } : {}) },
+    label: String(o.label ?? ''),
+    driver: String(o.driver ?? '').slice(0, 40),
+  };
+}
+
+/** The .vbst file's "format" value. */
+export const RUN_FILE_FORMAT = 'velocity-blocks-run';
+/** The file extension of saved runs. */
+export const RUN_FILE_EXT = '.vbst';
+
+/** A saved run (.vbst): readable details first, then the run itself (what the game reads back). */
+export interface RunFile {
+  format: typeof RUN_FILE_FORMAT;
+  /** The track's name ("A01 Warm-Up"). */
+  track: string;
+  /** Who drove it ('' when the profile has no name). */
+  driver: string;
+  /** Finish time as text ("0:10.60") and in ms. */
+  time: string;
+  timeMs: number;
+  vehicle: VehicleClass;
+  walls: boolean;
+  /** The game that saved it drove the inputs and finished at this time. The opening game checks again. */
+  verified: boolean;
+  /** When it was saved (ISO 8601) and by which game version and physics. */
+  savedAt: string;
+  game: string;
+  physics: number;
+  run: SharedRun;
+}
+
+/** The .vbst text of a run: drives it first, so `verified` says whether it finishes at its time here. */
+export function runFile(run: SharedRun, gameVersion: string, now = new Date()): string {
+  const driven = driveRun(run);
+  const f: RunFile = {
+    format: RUN_FILE_FORMAT,
+    track: run.label,
+    driver: run.driver,
+    time: formatTime(run.time),
+    timeMs: run.time,
+    vehicle: run.vehicle,
+    walls: run.walls,
+    verified: driven?.verified === true,
+    savedAt: now.toISOString(),
+    game: `Velocity Blocks ${gameVersion}`,
+    physics: run.physics,
+    run,
+  };
+  return JSON.stringify(f, null, 2);
+}
+
+/** "VelocityBlocks-A01-Warm-Up-Shaurya-0-10-60.vbst" */
+export function runFileName(run: SharedRun): string {
+  const part = (s: string) => s.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return ['VelocityBlocks', part(run.label), part(run.driver), part(formatTime(run.time))].filter(Boolean).join('-') + RUN_FILE_EXT;
 }
 
 /** The track data of a run (a campaign track by id), or null when this game does not have it. */

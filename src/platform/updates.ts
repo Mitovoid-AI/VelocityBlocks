@@ -3,9 +3,11 @@
 // policy forbids an app updating itself any other way. The browser, portal and `npm run dev` builds never
 // check either.
 //
-// At most once per 24 h, after the menu is up, the app asks GitHub for the latest release (one
-// unauthenticated GET to api.github.com, nothing sent but the request itself). A newer vX.Y.Z tag with an
-// .apk asset offers Update now / Later / Skip this version. The GitHub APK build downloads it inside the game
+// At every start, a few seconds after the menu is up (at most once an hour: GitHub allows 60 unauthenticated
+// requests an hour per address), the app asks GitHub for the latest release (one GET to api.github.com,
+// nothing sent but the request itself). A newer vX.Y.Z tag with an .apk asset offers its release notes (the
+// player summary, release-notes/X.Y.Z.md before its first heading) with Update now / Later / Skip this
+// version, and a link to the full notes. The GitHub APK build downloads it inside the game
 // with a progress bar and opens Android's installer on it (app/updateUi.ts); older app builds and Android 6
 // open the APK's address in the system browser instead. Offline, rate-limited or any other
 // failure: nothing is shown. Settings > Check for updates asks at once and says what it found.
@@ -18,8 +20,10 @@ export const REPO = 'Mitovoid-AI/VelocityBlocks';
 export const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 /** Only APKs attached to this repo's releases are offered (browser_download_url starts with this). */
 export const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;
-/** Automatic checks: at most one per this long (ms). */
-export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** Automatic checks (one at every start): at most one per this long (ms). */
+export const CHECK_INTERVAL_MS = 60 * 60 * 1000;
+/** Only this repo's release pages are linked from the pop-up (html_url starts with this). */
+export const RELEASE_PAGE_PREFIX = `https://github.com/${REPO}/releases/`;
 export const FETCH_TIMEOUT_MS = 8000;
 /** Release notes longer than this (characters) are cut. */
 export const NOTES_MAX = 600;
@@ -72,6 +76,16 @@ export function pickApkAsset(assets: unknown): ApkAsset | null {
  * is undone ([text](url) -> text, heading marks, ** and __, HTML comments); the result is still untrusted
  * text: put it on the page with textContent or esc(), never as HTML.
  */
+/**
+ * The player summary of release notes: the text before the first Markdown heading (release-notes/X.Y.Z.md
+ * opens with it; the details for developers follow under headings), or all of it when there is none.
+ */
+export function noteSummary(body: unknown): unknown {
+  if (typeof body !== 'string') return body;
+  const head = body.replace(/\r\n?/g, '\n').split(/^#{1,6}\s/m)[0].trim();
+  return head || body;
+}
+
 export function plainNotes(body: unknown, max = NOTES_MAX): string {
   if (typeof body !== 'string') return '';
   let t = body
@@ -98,9 +112,11 @@ export interface UpdateInfo {
   version: string;
   /** The release's tag as published ('v1.3.0'): what Skip this version remembers. */
   tag: string;
-  /** Plain text (plainNotes), possibly empty. */
+  /** Plain text (plainNotes of the player summary, noteSummary), possibly empty. */
   notes: string;
   apk: ApkAsset;
+  /** The release's page on GitHub (the full notes), when it is one of this repo's. */
+  page?: string;
 }
 
 /**
@@ -117,7 +133,8 @@ export function releaseUpdate(json: unknown, current: string): UpdateInfo | null
   if (!v || !cur || compareVersions(v, cur) <= 0) return null;
   const apk = pickApkAsset(r.assets);
   if (!apk) return null;
-  return { version: versionText(v), tag, notes: plainNotes(r.body), apk };
+  const page = typeof r.html_url === 'string' && r.html_url.startsWith(RELEASE_PAGE_PREFIX) ? r.html_url : undefined;
+  return { version: versionText(v), tag, notes: plainNotes(noteSummary(r.body)), apk, ...(page ? { page } : {}) };
 }
 
 // ------------------------------------------------------------------ Who checks

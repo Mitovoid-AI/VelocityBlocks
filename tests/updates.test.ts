@@ -13,6 +13,7 @@ import {
   fetchLatest,
   localUpdatePersist,
   NOTES_MAX,
+  noteSummary,
   parseVersion,
   pickApkAsset,
   plainNotes,
@@ -120,6 +121,7 @@ describe('release answer', () => {
       tag: 'v1.3.0',
       notes: 'Faster menus.',
       apk: { name: 'VelocityBlocks-v1.3.0.apk', url: apkUrl('v1.3.0'), size: 31_000_000 },
+      page: 'https://github.com/Mitovoid-AI/VelocityBlocks/releases/tag/v1.3.0',
     });
   });
 
@@ -168,6 +170,25 @@ describe('release answer', () => {
     expect(pickApkAsset([{ name: 'x.apk', browser_download_url: 'https://evil.example/x.apk' }, { name: 'y.apk', browser_download_url: apkUrl('v1', 'y.apk') }])?.name).toBe('y.apk');
     // Size: missing or nonsense counts as unknown.
     expect(pickApkAsset([{ name: 'y.apk', browser_download_url: apkUrl('v1', 'y.apk'), size: -3 }])?.size).toBe(0);
+  });
+});
+
+describe('release notes summary', () => {
+  it('is the player paragraph before the first heading of release-notes/X.Y.Z.md', () => {
+    const body = 'New in 1.3.0: chase a ghost.\n- Share your best lap.\r\n\r\n## What\'s new\n### Details\nFor developers';
+    expect(plainNotes(noteSummary(body))).toBe('New in 1.3.0: chase a ghost.\n- Share your best lap.');
+  });
+  it('is all of it when there is no heading, or when the notes start with one', () => {
+    expect(noteSummary('Faster menus.')).toBe('Faster menus.');
+    expect(plainNotes(noteSummary("## What's new\n- Faster menus"))).toBe("What's new\n- Faster menus");
+    expect(noteSummary(null)).toBe(null);
+  });
+  it('the pop-up links the release page only when it is this repo\'s', () => {
+    const base = { tag_name: 'v9.0.0', body: 'x', assets: [{ name: 'VelocityBlocks.apk', browser_download_url: apkUrl('v9.0.0', 'VelocityBlocks.apk') }] };
+    expect(releaseUpdate({ ...base, html_url: 'https://github.com/Mitovoid-AI/VelocityBlocks/releases/tag/v9.0.0' }, '1.0.0')?.page).toBe(
+      'https://github.com/Mitovoid-AI/VelocityBlocks/releases/tag/v9.0.0',
+    );
+    expect(releaseUpdate({ ...base, html_url: 'https://evil.example/releases/' }, '1.0.0')?.page).toBeUndefined();
   });
 });
 

@@ -23,12 +23,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Shared runs: a link to the browser game with a run in it opens here when the app is installed. -->
-            <intent-filter>
+            <!-- Shared runs: a link to the browser game with a run in it opens here when the app is installed.
+                 autoVerify: Android 12+ opens https links in an app only when the site vouches for it
+                 (site/.well-known/assetlinks.json, with the release key's certificate). -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="velocityblocks.vercel.app" android:pathPrefix="/play" />
+            </intent-filter>
+            <!-- velocityblocks://run#run=... from the browser game's "Open in the app" (also the Windows app's). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="velocityblocks" />
             </intent-filter>
 
         </activity>

@@ -160,32 +160,6 @@ body {
   line-height: 1.35;
   color: #dfe7f7;
 }
-/* Ghost markers: a tag over every ghost car, pinned to the screen edge while the ghost is off screen or behind. */
-.hud-ghosts {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
-.hud-ghost {
-  position: absolute;
-  left: 0;
-  top: 0;
-  padding: 2px 7px;
-  border-radius: 8px;
-  border: 2px solid currentColor;
-  background: rgba(6, 10, 24, 0.6);
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-  will-change: transform;
-}
-.hud-ghost.edge {
-  font-size: 12px;
-}
-.hud-ghost.target {
-  border-width: 3px;
-  font-size: 13px;
-}
 .hud-count {
   position: absolute;
   top: 28%;
@@ -2258,6 +2232,13 @@ kbd {
   gap: 8px;
   margin-top: 2px;
 }
+/* The release page with the full notes, under the actions. */
+.upd-full {
+  align-self: flex-start;
+  margin-top: 8px;
+  background: transparent;
+  text-decoration: underline;
+}
 .upd-actions .btn {
   white-space: nowrap;
 }
@@ -2310,4 +2291,38 @@ kbd {
     font-size: 13px;
     padding: 6px 8px;
   }
+}
+
+/* Runs (App.runsScreen): one row per kept run, its details beside its actions. */
+.run-list {
+  margin-top: 10px;
+}
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.run-row:last-child {
+  border-bottom: none;
+}
+.run-what {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.run-acts {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.run-ok {
+  color: #46e07a;
+  font-weight: 700;
+}
+.run-bad {
+  color: #ff9d2e;
+  font-weight: 700;
 }

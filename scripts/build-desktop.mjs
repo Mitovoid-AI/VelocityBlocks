@@ -81,6 +81,10 @@ await build({
     compression: 'maximum',
     publish: null,
     win: { executableName: 'VelocityBlocks' },
+    // Saved runs (.vbst) open in the installed game (desktop/main.cjs). The portable .exe registers nothing.
+    fileAssociations: [{ ext: 'vbst', name: 'Velocity Blocks run', description: 'Velocity Blocks run', role: 'Viewer' }],
+    // velocityblocks:// links (the browser game's "Open in the app"); the app also registers them when it starts.
+    protocols: [{ name: 'Velocity Blocks run', schemes: ['velocityblocks'] }],
     nsis: {
       oneClick: false,
       perMachine: false,

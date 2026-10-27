@@ -4,6 +4,7 @@ import { Ads } from '../ads/ads';
 import { BannerSlot, blockForAd } from '../ads/adsUi';
 import { GameAudio } from '../audio/audio';
 import { DT } from '../core/constants';
+import { Capacitor } from '@capacitor/core';
 import { entryKey, VEHICLE_CLASSES, VEHICLE_LABEL, type VehicleClass } from '../core/vehicles';
 import { Autopilot } from '../game/bot';
 import { campaignAuthorTime, medalFor, medalTimes } from '../game/medals';
@@ -16,7 +17,8 @@ import { TouchControls } from '../input/touchControls';
 import { STEER_LABEL } from '../input/touchModel';
 import { TouchWatch } from '../input/touchWatch';
 import { deviceInfo, installSource, keepAwake, setGestureExclusion, watchGestureInsets, watchRunLinks, type DeviceInfo } from '../platform/native';
-import { driveRun, parseRun, runTrackData } from '../game/runShare';
+import { RunLibrary, storedRun } from '../game/runLibrary';
+import { APP_LINK_BASE, driveRun, parseRun, RUN_FILE_EXT, RUN_LINK_BASE, runLink, runTrackData, type SharedRun } from '../game/runShare';
 import { findCdvPurchase, Purchases, type CdvNamespace } from '../platform/purchases';
 import { runtimeChannel, UpdateChecker, type UpdateInfo } from '../platform/updates';
 import { CameraRig } from '../render/cameraRig';
@@ -187,6 +189,8 @@ export class App {
   readonly input = new Input();
   readonly audio = new GameAudio();
   readonly store = new Store();
+  /** Shared runs kept to watch or race again (Runs screen). */
+  readonly runs = new RunLibrary();
   readonly hud = new Hud();
   /** Touches Android takes away mid-race (back swipes): RaceMode.back reads them. */
   readonly touches = new TouchWatch(() => this.mode instanceof RaceMode && this.mode.isRacing);
@@ -724,6 +728,17 @@ export class App {
       void this.openSharedRun(link);
     }
     watchRunLinks((url) => void this.openSharedRun(url));
+    // A saved run (.vbst) dropped on the window (PC): open it.
+    window.addEventListener('dragover', (e) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    });
+    window.addEventListener('drop', (e) => {
+      const f = e.dataTransfer?.files?.[0];
+      if (!f) return;
+      e.preventDefault();
+      if (f.size > 2_000_000) return void toast('That file is too big to be a run', 2500);
+      void f.text().then((t) => this.openSharedRun(t));
+    });
     // The realistic model, if one is picked, loads once the menu is up; the menu car swaps to it.
     setTimeout(() => this.preloadModel(), 1500);
     // Who installed the app (no request): Settings shows Check for updates on APK installs only.
@@ -802,7 +817,7 @@ export class App {
          <button class="btn" data-act="editor">Track editor</button>
          <button class="btn" data-act="settings">Settings</button>
          <button class="btn" data-act="help">How to play</button>
-         <button class="btn" data-act="sharedRun">Open shared run</button>
+         <button class="btn" data-act="runs">Runs (import &amp; shared)</button>
          ${fullGame().unlocked ? '' : '<button class="btn fg-cta" data-act="fullgame">&#9733;&nbsp; Get Full Game</button>'}
        </div>`,
       'menu-main home with-banner',
@@ -814,34 +829,70 @@ export class App {
         editor: () => this.openEditor(),
         settings: () => this.settingsMenu(() => this.mainMenu()),
         help: () => this.helpScreen(),
-        sharedRun: () => this.sharedRunScreen(),
+        runs: () => this.runsScreen(),
       },
     );
     this.offerUpdate();
   }
 
-  /** Paste a shared-run link (from WhatsApp and the like) to watch it or race it. */
-  sharedRunScreen(): void {
-    const el = showScreen(
-      `<div class="header"><button class="btn small" data-act="back">&#8592; Back</button><h2>Open shared run</h2></div>
-       <div class="panel" style="max-width:640px">
-         <p>Paste the link a friend shared. The game drives their exact inputs on the same track, so you see their real lap, with their pedals and steering, and can race against it.</p>
-         <textarea class="run-paste" rows="4" style="width:100%;box-sizing:border-box" placeholder="https://velocityblocks.vercel.app/play/#run=..."></textarea>
-         <div class="row" style="gap:8px;margin-top:10px">
-           <button class="btn" data-act="paste">Paste</button>
-           <button class="btn primary" data-act="open">Open</button>
+  /**
+   * Runs: import a saved run (.vbst) or paste a shared link, and the runs kept from before (RunLibrary), each to
+   * watch, race against or delete. Every run opened anywhere (a link, a file, a drop) is kept here.
+   */
+  runsScreen(): void {
+    this.ensureAttract();
+    const runs = this.runs.list();
+    const rows = runs.length
+      ? runs
+          .map(
+            (r) => `<div class="run-row">
+              <div class="run-what"><b>${esc(r.track || 'Track')}</b> <span class="muted">${esc(VEHICLE_LABEL[r.vehicle])}</span><br/>
+                ${esc(r.driver || 'Unknown driver')} &middot; ${formatTime(r.time)} &middot; ${r.verified ? '<span class="run-ok">&#10003; verified</span>' : '<span class="run-bad">not verified</span>'}
+                <span class="muted">&middot; ${esc(new Date(r.addedAt).toLocaleDateString())}</span></div>
+              <div class="run-acts">
+                <button class="btn small" data-act="watch" data-id="${esc(r.id)}">Watch</button>
+                <button class="btn small primary" data-act="race" data-id="${esc(r.id)}">Race it</button>
+                <button class="btn small" data-act="del" data-id="${esc(r.id)}" aria-label="Delete">&#10005;</button>
+              </div>
+            </div>`,
+          )
+          .join('')
+      : '<p class="muted">No runs yet. Import a .vbst file a friend sent you, or paste their link.</p>';
+    showScreen(
+      `<div class="header"><button class="btn small" data-act="back">&#8592; Back</button><h2>Runs</h2></div>
+       <div class="panel" style="max-width:760px">
+         <div class="row" style="gap:8px;flex-wrap:wrap">
+           <button class="btn primary" data-act="file">Import run file (.vbst)</button>
+           <button class="btn" data-act="pasteOpen">Paste a link</button>
          </div>
-       </div>`,
+         <p class="muted" style="margin:8px 0 0">The game drives each run's exact inputs on the same track: you watch the real lap, with its pedals and steering, and race against it. Runs you open from a link or a file are kept here. On a PC you can also drop a .vbst file on the game window.</p>
+       </div>
+       <div class="panel run-list" style="max-width:760px">${rows}</div>`,
       'menu-sub',
       {
         back: () => this.mainMenu(),
-        paste: () => {
+        file: async () => {
+          const text = await pickTextFile(`${RUN_FILE_EXT},application/json,application/octet-stream`);
+          if (text) void this.openSharedRun(text);
+        },
+        pasteOpen: () => {
           navigator.clipboard?.readText().then(
-            (t) => (el.querySelector<HTMLTextAreaElement>('.run-paste')!.value = t),
-            () => toast('Paste it into the box', 1800),
+            (t) => void this.openSharedRun(t),
+            () => toast('Copy the link first, then tap Paste a link', 2500),
           );
         },
-        open: () => void this.openSharedRun(el.querySelector<HTMLTextAreaElement>('.run-paste')!.value),
+        watch: (b) => {
+          const r = runs.find((x) => x.id === b.dataset.id);
+          if (r) void storedRun(r).then((run) => run && this.showRun(run, () => this.runsScreen()));
+        },
+        race: (b) => {
+          const r = runs.find((x) => x.id === b.dataset.id);
+          if (r) void storedRun(r).then((run) => run && this.raceRun(run));
+        },
+        del: (b) => {
+          if (b.dataset.id) this.runs.remove(b.dataset.id);
+          this.runsScreen();
+        },
       },
     );
   }
@@ -853,31 +904,50 @@ export class App {
   async openSharedRun(text: string): Promise<void> {
     const run = await parseRun(text);
     if (!run) {
-      toast('That is not a Velocity Blocks run link', 2500);
+      toast('That is not a Velocity Blocks run link or .vbst file', 2500);
       return;
     }
+    // The browser game, opened from a link: offer the installed app (velocityblocks:// links, App.start notes).
+    const appLink = !Capacitor.isNativePlatform() && !/Electron/.test(navigator.userAgent) ? (await runLink(run)).replace(RUN_LINK_BASE, APP_LINK_BASE) : undefined;
+    this.showRun(run, () => this.runsScreen(), true, appLink);
+  }
+
+  /** The race entry a run is on (its campaign track with its vehicle and walls, or its own layout). */
+  private runEntry(run: SharedRun): RaceEntry | null {
+    const ci = campaign().findIndex((c) => `c:${c.id}` === run.base);
+    if (ci >= 0) return this.campaignEntry(ci, run.vehicle, run.walls);
+    const data = runTrackData(run);
+    return data ? { key: entryKey(run.base, run.vehicle, run.walls), base: run.base, vehicle: run.vehicle, walls: run.walls, data, label: run.label || 'Shared track', authorTime: null } : null;
+  }
+
+  /** Drive a run here and show its replay (verified when it finishes at its time); `keep` adds it to Runs. */
+  showRun(run: SharedRun, back: () => void, keep = false, appLink?: string): void {
     const driven = driveRun(run);
-    if (!driven) {
+    const entry = this.runEntry(run);
+    if (!driven || !entry) {
       toast(runTrackData(run) ? 'This run does not finish in this version of the game' : 'This run is on a track this game does not have', 3000);
       return;
     }
-    const ci = campaign().findIndex((c) => `c:${c.id}` === run.base);
-    const entry: RaceEntry =
-      ci >= 0
-        ? this.campaignEntry(ci, run.vehicle, run.walls)
-        : { key: entryKey(run.base, run.vehicle, run.walls), base: run.base, vehicle: run.vehicle, walls: run.walls, data: runTrackData(run)!, label: run.label || 'Shared track', authorTime: null };
-    const name = run.driver || 'Shared run';
-    const race = () => this.startRace({ ...entry, rival: { ghost: driven.ghost, name } });
+    if (keep && this.runs.add(run, driven.verified)) toast('Added to Runs', 1500);
     this.world.setTrack(driven.track);
     this.setMode(
       () =>
-        new ReplayMode(this, driven.track, driven.ghost, entry, () => this.mainMenu(), {
+        new ReplayMode(this, driven.track, driven.ghost, entry, back, {
           title: 'Shared run',
           driver: run.driver,
           note: driven.verified ? '\u2713 verified' : 'not verified: another game version',
-          onRace: race,
+          onRace: () => this.raceRun(run),
+          appLink,
         }),
     );
+  }
+
+  /** Race a run's track with the run as the ghost to beat. */
+  raceRun(run: SharedRun): void {
+    const driven = driveRun(run);
+    const entry = this.runEntry(run);
+    if (!driven || !entry) return void toast('This run cannot be raced in this version of the game', 2500);
+    this.startRace({ ...entry, rival: { ghost: driven.ghost, name: run.driver || 'Shared run' } });
   }
 
   /** The replay of a race entry's personal best (its ghost), or a note when none was kept. */
