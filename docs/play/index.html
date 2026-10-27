@@ -56,9 +56,18 @@
         color: transparent;
       }
     </style>
-    <script type="module" crossorigin src="./assets/index-KvNav1RJ.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CPkRNHy4.css">
-  <!-- vercel-analytics -->
+    <script type="module" crossorigin src="./assets/index-xq4Uoi6j.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-TrDNzRmV.css">
+  <!-- play-seo -->
+<link rel="canonical" href="https://velocityblocks.vercel.app/play/" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Velocity Blocks" />
+<meta property="og:title" content="Play Velocity Blocks Free in Your Browser: Time-Attack Racing Game" />
+<meta property="og:description" content="Play Velocity Blocks free in your browser, no download: a time-attack racing game with 24 tracks, a car, a bike and a truck, nitro and a track editor. Keyboard, gamepad or touch." />
+<meta property="og:url" content="https://velocityblocks.vercel.app/play/" />
+<meta property="og:image" content="https://velocityblocks.vercel.app/img/og.jpg" />
+<meta name="twitter:card" content="summary_large_image" />
+<!-- vercel-analytics -->
 <script>(function () {
   var h = location.hostname;
   if (h === "localhost" || h === "127.0.0.1" || /\.github\.io$/.test(h)) return;
@@ -68,20 +77,13 @@
   s.src = "/_vercel/insights/script.js";
   document.head.appendChild(s);
 })();</script>
-<!-- play-seo -->
-<link rel="canonical" href="https://velocityblocks.vercel.app/play/" />
-<meta property="og:type" content="website" />
-<meta property="og:site_name" content="Velocity Blocks" />
-<meta property="og:title" content="Play Velocity Blocks Free in Your Browser: Time-Attack Racing Game" />
-<meta property="og:description" content="Play Velocity Blocks free in your browser, no download: a time-attack racing game with 24 tracks, a car, a bike and a truck, nitro and a track editor. Keyboard, gamepad or touch." />
-<meta property="og:url" content="https://velocityblocks.vercel.app/play/" />
-<meta property="og:image" content="https://velocityblocks.vercel.app/img/og.jpg" />
-<meta name="twitter:card" content="summary_large_image" />
 </head>
   <body>
     <div id="app">
       <canvas id="view"></canvas>
       <div id="hud" class="hidden">
+        <div id="hud-ghosts" class="hud-ghosts"></div>
+        <div id="hud-delta" class="hud-delta hidden"><div class="hud-delta-vs"></div><div class="hud-delta-val"></div><div class="hud-delta-log"></div></div>
         <div class="hud-tl">
           <div id="hud-track" class="hud-track"></div>
           <div id="hud-target" class="hud-target"></div>
