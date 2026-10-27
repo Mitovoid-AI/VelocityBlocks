@@ -179,3 +179,57 @@ jobs:
             # Full release, never a draft or pre-release: the apps and the website only see the latest one.
             gh release create "$TAG" dist-release/* --verify-tag --title "$title" --notes-file "$notes" --latest
           fi
+
+  site:
+    name: Website (Vercel and GitHub Pages)
+    needs: [check, publish]
+    # Only after a real publish: the site then shows this release's version and file sizes, and /play/ runs it.
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: main is the released version
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          main_version=$(node -p "require('./package.json').version")
+          if [ "$main_version" != "$VERSION" ]; then
+            echo "::error::main is at $main_version, not the released $VERSION. The site builds the browser game from main, so it is left as it is: run npm run site:build by hand once main matches."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the site and the browser game (docs/)
+        env:
+          # build-site.mjs reads this release's file sizes from the GitHub API (authenticated: no shared rate limit).
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run site:build
+      - name: Commit docs/ to main (Vercel deploys main)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --cached --quiet; then
+            echo "docs/ is unchanged"
+          else
+            git commit -q -m "Site: rebuild for $TAG"
+            # Someone may have pushed meanwhile: rebase onto it, a few tries.
+            for i in 1 2 3; do
+              git pull -q --rebase origin main && git push -q origin HEAD:main && break
+              sleep 10
+            done
+          fi
+      - name: Publish the GitHub Pages copy (gh-pages)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # deploy-site.mjs pushes from a temporary repository: hand git the token through a URL rewrite.
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npm run site:deploy -- --no-build --message "Site: $TAG"

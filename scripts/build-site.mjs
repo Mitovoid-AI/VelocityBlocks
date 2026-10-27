@@ -224,7 +224,10 @@ const RELEASE_API = 'https://api.github.com/repos/Mitovoid-AI/VelocityBlocks/rel
 async function fillReleaseInfo(file) {
   let rel;
   try {
-    const res = await fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10_000) });
+    const headers = { Accept: 'application/vnd.github+json' };
+    // In GitHub Actions: an authenticated request, not the runners' shared 60-an-hour limit.
+    if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+    const res = await fetch(RELEASE_API, { headers, signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     rel = await res.json();
   } catch (e) {
@@ -237,7 +240,8 @@ async function fillReleaseInfo(file) {
   }
   const version = /^v?\d+\.\d+\.\d+$/.test(rel.tag_name ?? '') ? `v${rel.tag_name.replace(/^v/, '')}` : '';
   let html = fs.readFileSync(file, 'utf8');
-  html = html.replace(/(<span data-asset-size="([^"]+)">)[^<]*(<\/span>)/g, (m, open, name, close) => (sizes[name] ? `${open}${sizes[name]}${close}` : m));
+  // Any <span> carrying data-asset-size, whatever other attributes it has (class="size" in the downloads).
+  html = html.replace(/(<span\b[^>]*\bdata-asset-size="([^"]+)"[^>]*>)[^<]*(<\/span>)/g, (m, open, name, close) => (sizes[name] ? `${open}${sizes[name]}${close}` : m));
   if (version) html = html.replace(/<span data-release-version><\/span>/g, `<span data-release-version> · ${version}</span>`);
   fs.writeFileSync(file, html);
   console.log(`Release ${version || '(no version)'}: ${Object.keys(sizes).length} file sizes written into the page`);
