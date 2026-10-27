@@ -38,6 +38,11 @@ dist-*/
 android/keystore.properties
 # The shared signing key for debug and GitHub builds (npm run signing:import / signing:upload)
 android/signing/
+# A keystore as text is the key too (base64 for the GitHub secret), and signing passwords
+*BASE64*.txt
+*keystore*.txt
+*.keystore.b64
+.env.signing*
 
 # Windows app build (npm run release:windows)
 desktop-dist/
