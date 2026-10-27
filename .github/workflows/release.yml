@@ -3,6 +3,9 @@
 # with the notes from release-notes/X.Y.Z.md (required: every release has notes; the first 600 characters
 # are what the in-app update pop-up shows). See README > "Releasing a new version".
 #
+# Actions > Release > Run workflow builds any branch or tag the same way without publishing (publish off):
+# the APK and the .exe files are then the run's artifacts, to test before tagging.
+#
 # The APK is signed with the keystore in the ANDROID_DEBUG_KEYSTORE_BASE64 secret: the same key as the APKs
 # already installed (1.2.x were debug-signed), or the apps could not update. The build stops if the secret is
 # missing or the APK's certificate is not APK_CERT_SHA256 below, rather than ship a key that breaks updates.
@@ -14,19 +17,26 @@ on:
     tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Tag to build and release again (e.g. v1.3.0); it must exist'
+      ref:
+        description: 'Branch or tag to build (a tag vX.Y.Z to publish)'
         required: true
+        default: main
+      publish:
+        description: 'Publish the release (the ref must be the tag vX.Y.Z)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  group: release-${{ inputs.ref || github.ref_name }}
   cancel-in-progress: false
 
 env:
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  # What to build: the pushed tag, or the ref asked for.
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.ref }}
+  PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
   # SHA-256 of the certificate that signed the released APKs (v1.2.0-v1.2.2). Change it only together
   # with the signing key, knowing that installed apps then need a reinstall.
   APK_CERT_SHA256: 8ab1923630878e38b5edb85af55c5a173fde8675670ead9e43f3a616ce9877d3
@@ -45,7 +55,8 @@ jobs:
         name: Tag matches package.json, release notes exist
         run: |
           version=$(node -p "require('./package.json').version")
-          if [ "$TAG" != "v$version" ]; then
+          echo "Building $TAG (version $version), publish: $PUBLISH"
+          if [ "$PUBLISH" = "true" ] && [ "$TAG" != "v$version" ]; then
             echo "::error::Tag $TAG does not match package.json version $version (bump it with npm version $version --no-git-tag-version)"
             exit 1
           fi
@@ -85,11 +96,12 @@ jobs:
           KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_B64" ]; then
-            echo "::error::Secret ANDROID_DEBUG_KEYSTORE_BASE64 is not set: add the keystore that signed the released APKs (see README)"
+            echo "::error::Secret ANDROID_DEBUG_KEYSTORE_BASE64 is not set: npm run signing:upload (see README)"
             exit 1
           fi
-          mkdir -p ~/.android
-          echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          # Where android/app/build.gradle signs debug builds from (git-ignored; locally: npm run signing:import).
+          mkdir -p android/signing
+          echo "$KEYSTORE_B64" | base64 -d > android/signing/debug.keystore
       - run: npm ci
       - name: Build the APK (npm run build, cap sync, gradle assembleGithubDebug)
         run: node scripts/release-apk.mjs --debug
@@ -104,7 +116,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: android
+          name: android-${{ needs.check.outputs.version }}
           path: builds/*.apk
           if-no-files-found: error
 
@@ -125,13 +137,15 @@ jobs:
         run: node scripts/build-desktop.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: windows
+          name: windows-${{ needs.check.outputs.version }}
           path: builds/*.exe
           if-no-files-found: error
 
   publish:
     name: Publish the release
     needs: [check, android, windows]
+    # Tag pushes, and Run workflow with publish on; test runs stop at the artifacts.
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

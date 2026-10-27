@@ -36,6 +36,8 @@ dist-*/
 
 # Play Store signing (see android/keystore.properties.example)
 android/keystore.properties
+# The shared signing key for debug and GitHub builds (npm run signing:import / signing:upload)
+android/signing/
 
 # Windows app build (npm run release:windows)
 desktop-dist/

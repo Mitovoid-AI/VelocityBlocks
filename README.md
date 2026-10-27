@@ -353,20 +353,23 @@ with the same key, and the release always has its notes and all its files.
 5. Rebuild and publish the website (`npm run site:deploy`) and commit `docs/`, so the browser game matches.
 
 **Signing key (one-time setup).** Installed apps only accept an update signed with the key that signed them.
-The APKs released so far (1.2.x) are debug-signed with the keystore on the maintainer's machine, so the
-workflow signs with that same keystore, from the repository secret `ANDROID_DEBUG_KEYSTORE_BASE64`:
+The APKs released so far (1.2.x) are debug-signed with one keystore, and every build uses that same one:
 
 ```bash
-# On the machine that built the 1.2.x APKs (Windows: %USERPROFILE%\.android\debug.keystore)
-base64 -w0 ~/.android/debug.keystore | gh secret set ANDROID_DEBUG_KEYSTORE_BASE64 --repo Mitovoid-AI/VelocityBlocks
+npm run signing:import -- <path/to/that/debug.keystore>   # copies it to android/signing/ (git-ignored), after checking it
+npm run signing:upload                                     # puts it in the repository secret ANDROID_DEBUG_KEYSTORE_BASE64
 ```
 
-The workflow refuses to publish an APK whose certificate is not the released one (`APK_CERT_SHA256` in the
-workflow), so a missing or wrong key fails the build instead of breaking updates. Moving to a proper release
-key later means a new certificate there, and every player reinstalling once (it deletes their progress).
+With `android/signing/debug.keystore` in place, every local debug build (`gradlew assembleGithubDebug`, `npm run
+release:apk -- --debug`) is signed with it too, so test APKs install over the released app and the other way
+round. GitHub Actions writes the same file from the secret. Both `signing:import` and the workflow refuse a key
+whose certificate is not the released one (`APK_CERT_SHA256` in the workflow), so a wrong key fails the build
+instead of breaking updates. Moving to a proper release key later means a new certificate there, and every
+player reinstalling once (it deletes their progress).
 
-Building by hand still works for testing: `npm run release:apk -- --debug` and `npm run release:windows` print
-the `gh release` commands instead of publishing.
+**Test builds on GitHub.** Actions > Release > **Run workflow** (publish off) builds any branch the same way and
+keeps the APK and the `.exe` files as the run's artifacts, without touching the releases. Players download from the
+release page; builds made on a laptop are for testing only.
 
 ## Website
 
