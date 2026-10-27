@@ -329,32 +329,44 @@ way. The web, portal and `npm run dev` builds and iOS never check.
 
 ## Releasing a new version
 
-1. Bump `"version"` in `package.json` (and the root `version` in `package-lock.json`, e.g. with
-   `npm version 1.3.0 --no-git-tag-version`). Run `npm run typecheck` and `npm test`.
-2. Build the APK and get the publish command:
+Releases are built by GitHub Actions (`.github/workflows/release.yml`), not on a laptop: every APK is signed
+with the same key, and the release always has its notes and all its files.
+
+1. Bump `"version"` in `package.json` and `package-lock.json` together: `npm version 1.4.0 --no-git-tag-version`.
+2. Write the release notes in `release-notes/1.4.0.md` (**required**: the workflow stops without them). The first
+   paragraph is plain text for players: the in-app update pop-up shows the first 600 characters. Then the
+   details (see `release-notes/1.3.0.md`).
+3. Merge to `main`, then tag that commit and push the tag:
 
    ```bash
-   npm run release:apk -- --notes "Faster menus, a new Desert track"   # release-signed: needs android/keystore.properties
-   npm run release:apk -- --debug --notes-file notes.md               # debug-signed, like the APKs shared so far
+   git tag v1.4.0 && git push origin v1.4.0
    ```
 
-   It runs `npm run build`, `npx cap sync android` and gradle (`assembleGithubRelease` or `assembleGithubDebug`), copies the
-   APK to `builds/VelocityBlocks-vX.Y.Z.apk` and prints a command like this (it never publishes by itself):
-
-   ```bash
-   gh release create v1.3.0 "builds/VelocityBlocks-v1.3.0.apk" --repo Mitovoid-AI/VelocityBlocks --title "Velocity Blocks 1.3.0" --notes "Faster menus, a new Desert track"
-   ```
-
-3. Check the APK on a phone, then run the printed command (needs the [GitHub CLI](https://cli.github.com/),
-   `gh auth login`). The tag must be `v` + the package.json version. Do not mark it as a draft or a pre-release:
-   the apps only see the latest full release. The notes are what the update pop-up shows. Installed GitHub
-   APKs (1.2.2 and later, Android 7+) download the update inside the game with a progress bar and open
-   Android's installer; older ones open the download in the browser.
-4. For Windows, `npm run release:windows` builds the installer and the portable `.exe` with the same version;
-   run the `gh release upload` command it prints to attach them to the same release.
-5. For Google Play, `npm run android:release` builds the `.aab` with the same version (Play installs never
+   The workflow checks that the tag matches the version and that the notes exist, runs the type-check and the
+   tests, builds the APK (`scripts/release-apk.mjs --debug`) on Linux and the Windows installer and portable
+   `.exe` (`scripts/build-desktop.mjs`) on Windows, and publishes the release `v1.4.0` with all of them, under
+   both the versioned names and the fixed names the website links (`releases/latest/download/VelocityBlocks.apk`,
+   `VelocityBlocks-Setup.exe`, `VelocityBlocks-Portable.exe`). A failed run can be re-run from the Actions tab,
+   or started again for an existing tag with **Run workflow**.
+4. For Google Play, `npm run android:release` builds the `.aab` with the same version (Play installs never
    see the GitHub release).
-6. Rebuild and publish the website (`npm run site:deploy`) and commit `docs/`, so the browser game matches.
+5. Rebuild and publish the website (`npm run site:deploy`) and commit `docs/`, so the browser game matches.
+
+**Signing key (one-time setup).** Installed apps only accept an update signed with the key that signed them.
+The APKs released so far (1.2.x) are debug-signed with the keystore on the maintainer's machine, so the
+workflow signs with that same keystore, from the repository secret `ANDROID_DEBUG_KEYSTORE_BASE64`:
+
+```bash
+# On the machine that built the 1.2.x APKs (Windows: %USERPROFILE%\.android\debug.keystore)
+base64 -w0 ~/.android/debug.keystore | gh secret set ANDROID_DEBUG_KEYSTORE_BASE64 --repo Mitovoid-AI/VelocityBlocks
+```
+
+The workflow refuses to publish an APK whose certificate is not the released one (`APK_CERT_SHA256` in the
+workflow), so a missing or wrong key fails the build instead of breaking updates. Moving to a proper release
+key later means a new certificate there, and every player reinstalling once (it deletes their progress).
+
+Building by hand still works for testing: `npm run release:apk -- --debug` and `npm run release:windows` print
+the `gh release` commands instead of publishing.
 
 ## Website
 
