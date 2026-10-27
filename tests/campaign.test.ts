@@ -3,6 +3,7 @@ import { PHYSICS_VERSION, VEHICLE_REV } from '../src/core/constants';
 import { VEHICLE_CLASSES } from '../src/core/vehicles';
 import { runBot } from '../src/game/bot';
 import { campaignAuthorTime, classAuthorTimes, type AuthorTable } from '../src/game/medals';
+import { proLapFor } from '../src/game/proLaps';
 import { classLines, type StoredLines } from '../src/game/racingLine';
 import { assistsFor } from '../src/physics/vehicle';
 import authorTimes from '../src/track/authorTimes.json';
@@ -58,7 +59,8 @@ describe.each(VEHICLE_CLASSES)('campaign: %s', (cls) => {
       const ratio = res.time! / classLines(lines, cls)![id].time;
       expect(ratio, 'author lap over racing-line lap').toBeGreaterThanOrEqual(GATES.authorVsLine[0]);
       expect(ratio, 'author lap over racing-line lap').toBeLessThanOrEqual(GATES.authorVsLine[1]);
-      expect(campaignAuthorTime(id, cls)).toBe(times![id]);
+      // The medals' author time is the pro driver's lap where there is one (tests/proDriver.test.ts).
+      expect(campaignAuthorTime(id, cls)).toBe(proLapFor(`c:${id}`, cls)?.time ?? times![id]);
     });
   }
 

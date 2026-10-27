@@ -33,6 +33,11 @@ interface VbNativePlugin {
   deviceInfo(): Promise<DeviceInfo>;
   installSource(): Promise<{ known: boolean; installer?: string }>;
   openUrl(options: { url: string }): Promise<{ opened: boolean }>;
+  writeShareChunk(options: { name: string; base64: string; reset: boolean }): Promise<void>;
+  shareFile(options: { name: string; mime: string; text?: string; title?: string }): Promise<{ shared: boolean }>;
+  shareText(options: { text: string; title?: string }): Promise<{ shared: boolean }>;
+  takeLink(): Promise<{ url?: string }>;
+  addListener(event: 'link', fn: (p: { url: string }) => void): Promise<PluginListenerHandle>;
   updateSupport(): Promise<{ inApp: boolean }>;
   downloadUpdate(options: { url: string; size: number }): Promise<{ version: string; size: number }>;
   cancelUpdate(): Promise<void>;
@@ -125,6 +130,88 @@ export async function openExternalUrl(url: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ------------------------------------------------------------------ Sharing
+
+/** Bytes per bridge call when a file to share goes to the Android app (base64 makes it a third bigger). */
+const SHARE_CHUNK = 512 * 1024;
+
+function toBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/**
+ * Share a file (a replay video) through the system share sheet: the Android app's own, else the browser's Web
+ * Share with files, else a download. 'shared' when a sheet opened or the file was downloaded.
+ */
+export async function shareFile(name: string, blob: Blob, text = ''): Promise<'shared' | 'downloaded' | 'failed'> {
+  if (available()) {
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      for (let i = 0; i === 0 || i < bytes.length; i += SHARE_CHUNK) {
+        await VbNative.writeShareChunk({ name, base64: toBase64(bytes.subarray(i, i + SHARE_CHUNK)), reset: i === 0 });
+      }
+      await VbNative.shareFile({ name, mime: blob.type || 'application/octet-stream', text: text || undefined, title: 'Share replay' });
+      return 'shared';
+    } catch {
+      return 'failed';
+    }
+  }
+  const file = new File([blob], name, { type: blob.type });
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+  if (nav.share && nav.canShare?.({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], text: text || undefined });
+      return 'shared';
+    } catch {
+      // Cancelled or refused: fall back to a download.
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  return 'downloaded';
+}
+
+/** Share a message (a shared-run link): the Android app's share sheet, Web Share, else the clipboard. */
+export async function shareText(text: string): Promise<'shared' | 'copied' | 'failed'> {
+  if (available()) {
+    try {
+      await VbNative.shareText({ text, title: 'Share run' });
+      return 'shared';
+    } catch {
+      return 'failed';
+    }
+  }
+  if (navigator.share) {
+    try {
+      await navigator.share({ text });
+      return 'shared';
+    } catch {
+      // Cancelled: copy it instead.
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return 'copied';
+  } catch {
+    return 'failed';
+  }
+}
+
+/**
+ * Shared-run links the Android app is opened with: `fn` gets the one it started from (once) and each one
+ * opened while it runs. Elsewhere nothing (the browser game reads its own address).
+ */
+export function watchRunLinks(fn: (url: string) => void): void {
+  if (!available()) return;
+  VbNative.addListener('link', (p) => p.url && fn(p.url)).catch(() => {});
+  VbNative.takeLink().then((r) => r.url && fn(r.url), () => {});
 }
 
 // ------------------------------------------------------------------ In-app updates (GitHub APK build)

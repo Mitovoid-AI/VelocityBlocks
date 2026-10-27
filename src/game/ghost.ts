@@ -1,11 +1,14 @@
 // Ghosts: sampled car poses for a finished run, interpolated on playback, and when its nitro pushed (for
 // replays, which show its flames; the PB ghost car in a race deliberately shows none).
-// Poses (rather than inputs) are stored so a ghost replays identically on any device.
+// Poses (rather than inputs) are stored so a ghost replays identically on any device. Ghosts recorded since
+// shared runs also keep the run's input log and driver aids: the replay shows the pedals, steering and nitro,
+// and a shared run (game/runShare.ts) drives the same lap again from them.
 
 import { PHYSICS_VERSION, TICK_HZ, VEHICLE_REV } from '../core/constants';
 import { qslerp, type Quat, type V3 } from '../core/vec';
 import { isVehicleClass, type VehicleClass } from '../core/vehicles';
-import { NITRO_TIME, type CarState } from '../physics/vehicle';
+import { NITRO_TIME, type Assists, type CarState } from '../physics/vehicle';
+import { decodeInputLog, encodeInputLog } from './inputLog';
 
 export const GHOST_INTERVAL = 2; // ticks between samples (50 Hz)
 const STRIDE = 8; // x y z qx qy qz qw steer
@@ -24,6 +27,10 @@ export interface Ghost {
    * (ghosts from before the nitro).
    */
   nitro?: number[];
+  /** The run's inputs, INPUT_STRIDE per racing tick (race.ts RaceSession.inputs); missing on older ghosts. */
+  inputs?: Int16Array;
+  /** The driver aids it was driven with (needed to drive the inputs again). */
+  assists?: Assists;
 }
 
 export class GhostRecorder {
@@ -44,7 +51,7 @@ export class GhostRecorder {
     this.buf.push(pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w, car.steer);
   }
 
-  finish(time: number, cpTimes: number[], vehicle: VehicleClass = 'car'): Ghost {
+  finish(time: number, cpTimes: number[], vehicle: VehicleClass = 'car', inputs?: readonly number[], assists?: Assists): Ghost {
     const nitro = this.nitro.slice();
     if (nitro.length % 2 === 1) nitro.push(Math.round((time * TICK_HZ) / 1000) + 1);
     return {
@@ -56,6 +63,8 @@ export class GhostRecorder {
       cpTimes: cpTimes.slice(),
       samples: new Float32Array(this.buf),
       nitro,
+      ...(inputs ? { inputs: Int16Array.from(inputs) } : {}),
+      ...(assists ? { assists: { ...assists } } : {}),
     };
   }
 }
@@ -143,6 +152,8 @@ export function encodeGhost(g: Ghost): string {
     o.r = g.rev;
   }
   if (g.nitro?.length) o.n = g.nitro;
+  if (g.inputs) o.u = encodeInputLog(g.inputs);
+  if (g.assists) o.a = g.assists;
   return JSON.stringify(o);
 }
 
@@ -161,6 +172,8 @@ export function decodeGhost(text: string): Ghost | null {
       cpTimes: o.c,
       samples: new Float32Array(bytes.buffer),
       nitro: Array.isArray(o.n) && o.n.every((t: unknown) => typeof t === 'number') ? o.n : [],
+      ...(typeof o.u === 'string' ? { inputs: decodeInputLog(o.u) ?? undefined } : {}),
+      ...(o.a && (o.a.tc === 'normal' || o.a.tc === 'low') ? { assists: { tc: o.a.tc, ...(o.a.analogSteer === true ? { analogSteer: true } : {}) } } : {}),
     };
   } catch {
     return null;

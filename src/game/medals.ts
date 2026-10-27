@@ -6,6 +6,7 @@ import { campaign } from '../track/campaign';
 import { Track } from '../track/track';
 import authorTimes from '../track/authorTimes.json';
 import { runBot } from './bot';
+import { proLapFor } from './proLaps';
 
 export interface MedalTimes {
   author: number;
@@ -71,6 +72,9 @@ const computed = new Map<string, number>();
  * Author times are open-road times and shared by both wall modes.
  */
 export function campaignAuthorTime(id: string, vehicle: VehicleClass = 'car'): number | null {
+  // The pro driver's lap is the author time; the autopilot's (authorTimes.json) stands in where there is none.
+  const pro = proLapFor(`c:${id}`, vehicle);
+  if (pro) return pro.time;
   const t = classAuthorTimes(authorTimes as AuthorTable, vehicle)?.[id];
   if (t) return t;
   const memo = `${id}@${vehicle}`;

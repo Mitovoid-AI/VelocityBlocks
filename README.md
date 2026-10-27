@@ -17,8 +17,8 @@ only; the vehicle models in `public/vehicles/` keep their own license.
 - **24-track campaign** in three sets, Stadium (A01-A12), Desert (D01-D06: sand, dunes, mesas, sunsets)
   and Water (W01-W06: bridges and jumps over lakes and rivers, splash zones), each graded White → Black,
   with Author / Gold / Silver / Bronze medals.
-  Each track is checked by an autopilot that has to finish it, and that autopilot's time is the
-  author time.
+  Each track is checked by an autopilot that has to finish it. The author time is the lap of the
+  **pro driver**, an AI that practised every track per vehicle (see [Pro driver and author times](#pro-driver-and-author-times)).
 - **Arcade physics with F1-style handling** at a fixed 100 Hz tick: a rigid body on four
   suspension rays with slip-angle tyres, rear-wheel drive, aero downforce through the springs (fast
   corners hold more grip than slow ones), ABS brakes, steering lock that eases off with speed,
@@ -46,9 +46,16 @@ only; the vehicle models in `public/vehicles/` keep their own license.
 - **Photo badge:** your photo (or a dummy silhouette when none is set) floats above your car while
   you race and in replays, and a dimmed copy rides on the personal-best ghost. It hides in the
   hood camera and can be switched off in the profile.
-- **Ghosts:** your personal-best run is saved and raced against; split times are shown against it
-  at every checkpoint.
-- **Replays** with chase, far and trackside cameras at 1x, 0.5x and 0.25x speed.
+- **Ghosts:** one target ghost at a time: **Gold** until gold is won, then the **Author**, then your
+  **personal best**, with its line drawn on the road for the whole lap. A live gap to it (green ahead,
+  red behind) with the gap at every checkpoint, and a tag over it that stays on screen when it is behind
+  you. Pause > Chase picks another target.
+- **Replays** with chase, far and trackside cameras at 1x, 0.5x and 0.25x speed, telemetry from the
+  run's input log (gas and brake %, steering, nitro, speed, splits), and the line the car drove (or the
+  ideal racing line) on the road. Your best lap is one tap away on every campaign card (**▶ Best lap**),
+  and the author's lap is on the results card.
+- **Sharing:** a replay shares as a **video** (recorded with its telemetry; the system share sheet) or as
+  a **run link** that drives the same lap in anyone's game, verified against its time, to watch or race.
 - **Track editor:** 15 block types (water and splash zones too) on a 32 × 32 grid with 8 height levels. Rotate, erase, undo,
   route validation, an autopilot check, test drives (your first finish sets the author time), and
   save, export and import as `.vbtrack.json`.
@@ -212,6 +219,69 @@ shortcuts, uninstaller) and `builds/VelocityBlocks-X.Y.Z-Portable.exe`, plus cop
 update check use, and prints the `gh release upload` command. The files are not code-signed, so SmartScreen
 warns on the first run (More info > Run anyway) until a signing certificate is added. In the app the game is
 the plain web build: everything unlocked, no in-game update pop-up (the window does that).
+
+## Pro driver and author times
+
+The author time of a campaign track is the lap of the **pro driver** (`src/game/proDriver.ts`): the racing
+line's pace pilot with its settings tuned per track by practice. It searches the share of grip it corners
+at, its braking, steering lookahead, how wide it uses the road, how it takes crests, and a speed factor for
+every 20 m of road, keeping only changes that give a faster clean lap (finished, no respawn, no barrier hit).
+The physics is deterministic, so a tuned driver laps the same every time. On average its laps are 20-24%
+faster than the autopilot's (A01: 10.00 s, against 12.86 s before), and medals follow from it as before
+(gold +6%, silver +20%, bronze +50%).
+
+- `src/track/proLaps.json` holds each track's tuned settings and lap time per class (bundled, about 25 kB).
+  `campaignAuthorTime` (medals.ts) reads it first, and the autopilot table only where it has no lap.
+- `scripts/pro-laps.ts` practises on every core at the lowest OS priority (it only takes idle CPU), several
+  sessions per track (one continuing from the stored lap), and keeps a stored lap unless a faster one is
+  found. It resumes where it stopped. Rerun it after any physics change, like `author-times.ts`:
+
+  ```bash
+  npx esbuild scripts/pro-laps.ts --bundle --platform=node --format=esm --outfile=<tmp>/pro-laps.mjs
+  node <tmp>/pro-laps.mjs [car|bike|truck] [--laps 3000] [--seeds 3] [--threads N] [ids...]
+  ```
+
+- The autopilot (`bot.ts`, `authorTimes.json`) stays as the campaign tests' finishability check and the
+  touch drivers' reference, unchanged.
+- `tests/proDriver.test.ts` replays every stored lap and fails when one no longer finishes at its stored
+  time (the table is stale).
+
+**Ghosts and the live gap.** The medal ghosts are the pro lap stretched in time to each medal time
+(`stretchGhost`), so they drive the author's line at the medal's pace. The game drives the pro lap once per
+race, time-sliced during the countdown (`proGhostJob`). The gap is measured along the centre line
+(`src/game/ghostDelta.ts`): where the player is, against when the ghost was there.
+
+## Replays, input logs and shared runs
+
+Every finished run now keeps its **input log** (steer, gas, brake and nitro per 10 ms tick, run-length
+packed: `src/game/inputLog.ts`) and its driver aids in its ghost. Older ghosts have none: their replays show
+the driven line without pedals, and they cannot be shared as run links.
+
+- **Telemetry** (`src/ui/telemetry.ts`) is drawn on a canvas over the 3D view, so videos carry it.
+- **Driven line** (`src/game/drivenLine.ts`) turns the ghost's poses and inputs into racing-line data, drawn
+  by the racing line's own ribbon (green throttle, yellow lift, red brake, violet nitro). Replays toggle
+  Line: driven / ideal / off.
+- **Share video** (`src/app/replayVideo.ts`) replays from the start and records the canvas plus the
+  telemetry with MediaRecorder: MP4 (H.264) where the WebView can encode it (Chrome 126+), WebM otherwise
+  (WhatsApp sends WebM as a file). The Android app hands it to the share sheet through `VbNativePlugin`
+  (`writeShareChunk` + `shareFile`, via the existing FileProvider); browsers use Web Share or a download.
+- **Share run** (`src/game/runShare.ts`) builds `https://velocityblocks.vercel.app/play/#run=<payload>`: the
+  track (a campaign id, or the layout of a custom track), vehicle, walls, aids, time, driver name and input
+  log, deflated and base64url'd into the fragment (never sent to a server; about 2 kB for A01). The receiving
+  game drives the inputs and shows the replay, **verified** when it finishes at the shared time, with
+  **Race it** to race against it as the target ghost.
+- Opening links: the Android app declares an intent filter for `https://velocityblocks.vercel.app/play`
+  (it appears in Android's "Open with"), and `VbNativePlugin.takeLink` / the `link` event hand the link to
+  the game. The browser game reads its own address, and Menu > **Open shared run** takes a pasted link.
+  The browser game understands run links only once the site is rebuilt with this version.
+
+## Testing on a device or emulator (autoplay)
+
+`?autoplay` in the address makes the pro driver drive every race (its tuned settings on campaign tracks),
+and `?autoplay=base` the untuned one (a little slower, to watch it chase the medal ghosts). The game then
+exposes `window.vbTest` (`app`, `campaign`, `proLapFor`) to DevTools: in a debug APK, forward the WebView's
+DevTools with `adb forward tcp:9335 localabstract:webview_devtools_remote_<pid>` and drive the app from a
+script. In-app autoplay laps match the headless ones to the hundredth on all 24 tracks.
 
 ## Version
 

@@ -1,5 +1,6 @@
 // In-race heads-up display.
 
+import { formatDelta } from '../game/ghostDelta';
 import { formatTime } from '../game/race';
 import type { MedalTimes } from '../game/medals';
 import { $, esc } from './dom';
@@ -35,6 +36,53 @@ export class Hud {
   private nitroKey = '';
   private tiltBar = $('#hud-tilt');
   private tiltX = '';
+
+  private delta = $('#hud-delta');
+  private deltaVs = this.delta.querySelector<HTMLElement>('.hud-delta-vs')!;
+  private deltaVal = this.delta.querySelector<HTMLElement>('.hud-delta-val')!;
+  private deltaLog = this.delta.querySelector<HTMLElement>('.hud-delta-log')!;
+  private deltaKey = '';
+  private ghosts = $('#hud-ghosts');
+  private ghostEls: HTMLElement[] = [];
+
+  /**
+   * The gap to the chased ghost (null hides the panel): `vs` names it in its colour, `ms` is the live gap
+   * (negative: ahead), `log` the gaps at the checkpoints passed so far, the latest first.
+   */
+  setDelta(vs: { name: string; color: string } | null, ms: number, log: readonly number[]): void {
+    const key = vs ? `${vs.name}|${vs.color}|${formatDelta(ms)}|${log.join(',')}` : '';
+    if (key === this.deltaKey) return;
+    this.deltaKey = key;
+    this.delta.classList.toggle('hidden', !vs);
+    if (!vs) return;
+    this.deltaVs.textContent = `vs ${vs.name}`;
+    this.deltaVs.style.color = vs.color;
+    this.deltaVal.textContent = formatDelta(ms);
+    this.deltaVal.className = `hud-delta-val ${ms <= 0 ? 'ahead' : 'behind'}`;
+    this.deltaLog.innerHTML = log
+      .slice(0, 4)
+      .map((d, i) => `<div class="${d <= 0 ? 'ahead' : 'behind'}">CP${log.length - i} ${esc(formatDelta(d))}</div>`)
+      .join('');
+  }
+
+  /** One tag per ghost car at screen position x, y (CSS px); `edge`: pinned to the screen edge (off screen or behind). */
+  setGhostTags(tags: readonly { x: number; y: number; text: string; color: string; edge: boolean; target: boolean }[]): void {
+    while (this.ghostEls.length < tags.length) {
+      const el = document.createElement('div');
+      this.ghosts.appendChild(el);
+      this.ghostEls.push(el);
+    }
+    this.ghostEls.forEach((el, i) => {
+      const t = tags[i];
+      el.style.display = t ? '' : 'none';
+      if (!t) return;
+      if (el.textContent !== t.text) el.textContent = t.text;
+      el.style.color = t.color;
+      el.className = `hud-ghost${t.edge ? ' edge' : ''}${t.target ? ' target' : ''}`;
+      // Centred on the point (above the car, or on the edge).
+      el.style.transform = `translate(${Math.round(t.x)}px, ${Math.round(t.y)}px) translate(-50%, -50%)`;
+    });
+  }
 
   show(v: boolean): void {
     this.el.classList.toggle('hidden', !v);

@@ -33,6 +33,10 @@ export interface Settings {
   volume: number;
   camera: 'chase' | 'far' | 'hood';
   showGhost: boolean;
+  /** Race the target ghost (Gold, then the Author, then the PB) with its line on the road. */
+  medalGhosts: boolean;
+  /** The ghost the live gap is measured to ('auto': the next goal, see raceMode.ts autoChase). */
+  chase: ChaseTarget;
   autoAccelerate: boolean;
   steerMode: SteerMode;
   pedals: PedalMode;
@@ -182,6 +186,10 @@ const touchDevice = typeof window !== 'undefined' && ('ontouchstart' in window |
 /** What builds before Auto quality started a player on: touchscreens Medium, else High. */
 export const legacyDefaultQuality = (touch: boolean): Quality => (touch ? 'medium' : 'high');
 
+/** Ghosts the live gap can be measured to, in the order the pause menu cycles them. */
+export const CHASE_TARGETS = ['auto', 'pb', 'author', 'gold', 'silver', 'bronze'] as const;
+export type ChaseTarget = (typeof CHASE_TARGETS)[number];
+
 export const DEFAULT_SETTINGS: Settings = {
   // Auto: phones and tablets start on medium (smaller shadow map, capped pixel ratio), and the frame
   // rate in the first races moves it (render/autoQuality.ts).
@@ -191,6 +199,8 @@ export const DEFAULT_SETTINGS: Settings = {
   volume: 0.7,
   camera: 'chase',
   showGhost: true,
+  medalGhosts: true,
+  chase: 'auto',
   autoAccelerate: false,
   steerMode: 'buttons',
   pedals: 'bars',
@@ -236,6 +246,8 @@ export function migrateSettings(raw: Record<string, unknown>, touch = touchDevic
     controlsTipShown: raw.controlsTipShown === true,
     tractionControl: raw.tractionControl === 'low' ? 'low' : 'normal',
     racingLine: raw.racingLine === true,
+    medalGhosts: raw.medalGhosts !== false,
+    chase: CHASE_TARGETS.includes(raw.chase as ChaseTarget) ? (raw.chase as ChaseTarget) : 'auto',
     walls: raw.walls === true,
     tiltDeadzone: num(raw.tiltDeadzone, 0, TILT_DEAD_MAX, DEFAULT_SETTINGS.tiltDeadzone),
     tiltSmoothing: num(raw.tiltSmoothing, 0, 1, DEFAULT_SETTINGS.tiltSmoothing),

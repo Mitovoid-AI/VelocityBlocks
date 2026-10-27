@@ -12,8 +12,8 @@ const SRC = readFileSync(join(__dirname, '..', 'android', 'app', 'src', 'main', 
 describe('VbNativePlugin', () => {
   it('resolves every call with an object, never with nothing', () => {
     expect(SRC).not.toMatch(/\.resolve\(\s*\)/);
-    // keepAwake, setGestureExclusion and cancelUpdate still resolve.
-    expect(SRC.match(/call\.resolve\(new JSObject\(\)\)/g)).toHaveLength(3);
+    // keepAwake, setGestureExclusion, cancelUpdate and writeShareChunk still resolve.
+    expect(SRC.match(/call\.resolve\(new JSObject\(\)\)/g)).toHaveLength(4);
   });
 
   it('reports who installed the app, safely on every Android version', () => {

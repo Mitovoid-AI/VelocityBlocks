@@ -15,7 +15,8 @@ import { Input, isTouchDevice, type Action, type ActionSource } from '../input/i
 import { TouchControls } from '../input/touchControls';
 import { STEER_LABEL } from '../input/touchModel';
 import { TouchWatch } from '../input/touchWatch';
-import { deviceInfo, installSource, keepAwake, setGestureExclusion, watchGestureInsets, type DeviceInfo } from '../platform/native';
+import { deviceInfo, installSource, keepAwake, setGestureExclusion, watchGestureInsets, watchRunLinks, type DeviceInfo } from '../platform/native';
+import { driveRun, parseRun, runTrackData } from '../game/runShare';
 import { findCdvPurchase, Purchases, type CdvNamespace } from '../platform/purchases';
 import { runtimeChannel, UpdateChecker, type UpdateInfo } from '../platform/updates';
 import { CameraRig } from '../render/cameraRig';
@@ -65,6 +66,8 @@ import { showUpdatePopup } from './updateUi';
  */
 export interface Mode {
   update(dt: number): void;
+  /** Right after a frame is drawn, while the canvas still holds it (a replay copies it into its video). */
+  afterRender?(): void;
   exit(): void;
   onAction?(a: Action, src?: ActionSource): void;
 }
@@ -302,7 +305,10 @@ export class App {
       this.mode?.update(dt);
       this.world.update(dt);
       const every = this.mode instanceof RaceMode ? this.mode.renderEvery : 1;
-      if (this.frameSkip.due(every, this.world.dirty)) this.world.render();
+      if (this.frameSkip.due(every, this.world.dirty)) {
+        this.world.render();
+        this.mode?.afterRender?.();
+      }
       this.lastWork = performance.now() - t0;
     }
     const racing = this.mode instanceof RaceMode && this.mode.isRacing;
@@ -711,6 +717,13 @@ export class App {
     void this.startBilling().catch((e) => console.warn('[iap] billing did not start', e));
     if (this.store.profile.setupDone) this.mainMenu();
     else this.profileScreen('setup', () => this.mainMenu());
+    // A shared-run link: the browser game's own address, or (Android app) the link it was opened with.
+    if (/[#&]run=/.test(location.hash)) {
+      const link = location.href;
+      history.replaceState(null, '', location.pathname + location.search);
+      void this.openSharedRun(link);
+    }
+    watchRunLinks((url) => void this.openSharedRun(url));
     // The realistic model, if one is picked, loads once the menu is up; the menu car swaps to it.
     setTimeout(() => this.preloadModel(), 1500);
     // Who installed the app (no request): Settings shows Check for updates on APK installs only.
@@ -789,6 +802,7 @@ export class App {
          <button class="btn" data-act="editor">Track editor</button>
          <button class="btn" data-act="settings">Settings</button>
          <button class="btn" data-act="help">How to play</button>
+         <button class="btn" data-act="sharedRun">Open shared run</button>
          ${fullGame().unlocked ? '' : '<button class="btn fg-cta" data-act="fullgame">&#9733;&nbsp; Get Full Game</button>'}
        </div>`,
       'menu-main home with-banner',
@@ -800,9 +814,82 @@ export class App {
         editor: () => this.openEditor(),
         settings: () => this.settingsMenu(() => this.mainMenu()),
         help: () => this.helpScreen(),
+        sharedRun: () => this.sharedRunScreen(),
       },
     );
     this.offerUpdate();
+  }
+
+  /** Paste a shared-run link (from WhatsApp and the like) to watch it or race it. */
+  sharedRunScreen(): void {
+    const el = showScreen(
+      `<div class="header"><button class="btn small" data-act="back">&#8592; Back</button><h2>Open shared run</h2></div>
+       <div class="panel" style="max-width:640px">
+         <p>Paste the link a friend shared. The game drives their exact inputs on the same track, so you see their real lap, with their pedals and steering, and can race against it.</p>
+         <textarea class="run-paste" rows="4" style="width:100%;box-sizing:border-box" placeholder="https://velocityblocks.vercel.app/play/#run=..."></textarea>
+         <div class="row" style="gap:8px;margin-top:10px">
+           <button class="btn" data-act="paste">Paste</button>
+           <button class="btn primary" data-act="open">Open</button>
+         </div>
+       </div>`,
+      'menu-sub',
+      {
+        back: () => this.mainMenu(),
+        paste: () => {
+          navigator.clipboard?.readText().then(
+            (t) => (el.querySelector<HTMLTextAreaElement>('.run-paste')!.value = t),
+            () => toast('Paste it into the box', 1800),
+          );
+        },
+        open: () => void this.openSharedRun(el.querySelector<HTMLTextAreaElement>('.run-paste')!.value),
+      },
+    );
+  }
+
+  /**
+   * Open a shared run (a link or its payload): drive its inputs here, then show the replay, verified when it
+   * finishes at the shared time. "Race it" races the track with that lap as a ghost.
+   */
+  async openSharedRun(text: string): Promise<void> {
+    const run = await parseRun(text);
+    if (!run) {
+      toast('That is not a Velocity Blocks run link', 2500);
+      return;
+    }
+    const driven = driveRun(run);
+    if (!driven) {
+      toast(runTrackData(run) ? 'This run does not finish in this version of the game' : 'This run is on a track this game does not have', 3000);
+      return;
+    }
+    const ci = campaign().findIndex((c) => `c:${c.id}` === run.base);
+    const entry: RaceEntry =
+      ci >= 0
+        ? this.campaignEntry(ci, run.vehicle, run.walls)
+        : { key: entryKey(run.base, run.vehicle, run.walls), base: run.base, vehicle: run.vehicle, walls: run.walls, data: runTrackData(run)!, label: run.label || 'Shared track', authorTime: null };
+    const name = run.driver || 'Shared run';
+    const race = () => this.startRace({ ...entry, rival: { ghost: driven.ghost, name } });
+    this.world.setTrack(driven.track);
+    this.setMode(
+      () =>
+        new ReplayMode(this, driven.track, driven.ghost, entry, () => this.mainMenu(), {
+          title: 'Shared run',
+          driver: run.driver,
+          note: driven.verified ? '\u2713 verified' : 'not verified: another game version',
+          onRace: race,
+        }),
+    );
+  }
+
+  /** The replay of a race entry's personal best (its ghost), or a note when none was kept. */
+  watchBest(entry: RaceEntry, back: () => void): void {
+    const ghost = this.store.ghost(entry.key);
+    if (!ghost) {
+      toast('No replay of this best lap was kept', 2000);
+      return;
+    }
+    const track = new Track(entry.data, { walls: entry.walls });
+    this.world.setTrack(track);
+    this.setMode(() => new ReplayMode(this, track, ghost, entry, back, { title: 'Best lap' }));
   }
 
   /** Setup page or profile editor over the menu car; it turns the garage view on itself. */
@@ -856,6 +943,8 @@ export class App {
           const m = e.authorTime ? medalTimes(e.authorTime) : null;
           const medal = medalFor(rec?.best, m);
           meta = `${medal ? medalDot(medal) : ''}PB ${rec ? formatTime(rec.best) : '--'}<br/>${authorLabel(e.authorTime, authorRevealed(rec?.best, m))}`;
+          // The best lap's replay (telemetry, its line, share it as a video or a run link).
+          if (rec) meta += `<span class="card-best" data-act="best" data-i="${idx}">&#9654; Best lap</span>`;
         }
         return `<button class="card ${locked ? 'locked' : ''} ${paid ? 'premium' : ''} ${offer ? 'unlockable' : ''}" data-act="${paid ? 'premium' : offer ? 'unlock' : locked ? 'locked' : 'race'}" data-i="${idx}" data-id="${esc(ct.id)}">
           <div><span class="id">${ct.id}</span><span class="series s-${ct.series}">${ct.series}</span></div>
@@ -882,6 +971,10 @@ export class App {
         race: (el) => {
           const idx = cardIndex(el);
           if (idx >= 0) void this.playRace(this.campaignEntry(idx));
+        },
+        best: (el) => {
+          const idx = cardIndex(el);
+          if (idx >= 0) this.watchBest(this.campaignEntry(idx), () => this.campaignMenu(el.closest('.screen')?.scrollTop ?? 0));
         },
         set: (b) => {
           const t = sets.find((x) => x.theme === b.dataset.v);
@@ -1237,6 +1330,7 @@ export class App {
          <label id="s-vol-l">Volume</label>
          <div class="tilt-row">${sliderHtml(VOLUME, s.volume, { id: 's-vol', labelledBy: 's-vol-l', text: volumeText(s.volume) })}<span class="tilt-val" id="s-vol-v">${volumeText(s.volume)}</span></div>
          <label for="s-ghost">Show personal-best ghost</label><input id="s-ghost" type="checkbox" ${s.showGhost ? 'checked' : ''}/>
+         <label for="s-mghost">Show the target ghost and its line</label><input id="s-mghost" type="checkbox" ${s.medalGhosts ? 'checked' : ''}/>
          <label id="s-walls-l">Walls on all roads</label>
          <div><div class="seg" role="group" aria-labelledby="s-walls-l">${[false, true]
            .map((on) => `<button class="btn small ${on === s.walls ? 'sel' : ''}" data-act="walls" data-v="${on ? 'on' : 'off'}" aria-pressed="${on === s.walls}">${on ? 'On' : 'Off'}</button>`)
@@ -1337,6 +1431,7 @@ export class App {
       t.innerHTML = qualityOptionsHtml(s.qualityAuto ? 'auto' : s.quality, s.quality);
     });
     on('#s-ghost', 'change', (t) => (s.showGhost = t.checked));
+    on('#s-mghost', 'change', (t) => (s.medalGhosts = t.checked));
     // Heard while dragged, saved when let go.
     el.querySelectorAll<HTMLElement>('#s-vol').forEach((v) =>
       bindSlider(v, VOLUME, s.volume, {

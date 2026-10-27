@@ -121,6 +121,71 @@ body {
     0 1px 2px rgba(0, 0, 0, 0.85),
     0 0 8px rgba(0, 0, 0, 0.6);
 }
+/* Live gap to the chased ghost, on the left under the track lines, with the gaps at the last checkpoints. */
+.hud-delta {
+  position: absolute;
+  left: calc(16px + var(--safe-l));
+  top: calc(96px + var(--safe-t));
+  min-width: 92px;
+  padding: 6px 10px 7px;
+  border-radius: 10px;
+  background: rgba(6, 10, 24, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+.hud-delta.hidden {
+  display: none;
+}
+.hud-delta-vs {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hud-delta-val {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.hud-delta-val.ahead,
+.hud-delta-log .ahead {
+  color: #46e07a;
+}
+.hud-delta-val.behind,
+.hud-delta-log .behind {
+  color: #ff5a4f;
+}
+.hud-delta-log {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #dfe7f7;
+}
+/* Ghost markers: a tag over every ghost car, pinned to the screen edge while the ghost is off screen or behind. */
+.hud-ghosts {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.hud-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 2px 7px;
+  border-radius: 8px;
+  border: 2px solid currentColor;
+  background: rgba(6, 10, 24, 0.6);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  will-change: transform;
+}
+.hud-ghost.edge {
+  font-size: 12px;
+}
+.hud-ghost.target {
+  border-width: 3px;
+  font-size: 13px;
+}
 .hud-count {
   position: absolute;
   top: 28%;
@@ -965,6 +1030,17 @@ body.touch .panel {
   font-size: 13px;
   margin-top: 6px;
   font-variant-numeric: tabular-nums;
+}
+/* The best lap's replay, on a campaign card with a personal best. */
+.card .card-best {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 9px;
+  border-radius: 8px;
+  background: rgba(63, 224, 255, 0.16);
+  color: #9feaff;
+  font-weight: 800;
+  font-size: 12px;
 }
 .series {
   display: inline-block;
