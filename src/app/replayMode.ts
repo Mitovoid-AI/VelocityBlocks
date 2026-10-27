@@ -1,16 +1,43 @@
-// Replay viewer: plays back a recorded ghost with alternating chase and trackside cameras.
+// Replay viewer: plays back a recorded ghost with alternating chase and trackside cameras, with its telemetry
+// (pedals, steering, nitro, speed, splits: from the run's input log) and the line it drove on the road
+// (coloured by what the driver did), or the ideal racing line. A replay can be shared as a video (recorded
+// from the screen, app/replayVideo.ts) or, when it kept its inputs, as a link that drives the same lap in
+// anyone's game (game/runShare.ts).
 
 import { DT, MAX_SPEED } from '../core/constants';
 import { qrotate, type Quat, type V3 } from '../core/vec';
+import { drivenLineData } from '../game/drivenLine';
 import { ghostEndTick, ghostNitro, ghostPose, type Ghost } from '../game/ghost';
+import { INPUT_STRIDE } from '../game/inputLog';
 import { formatTime } from '../game/race';
+import { lineJobs } from '../game/racingLine';
+import { runLink, runOf } from '../game/runShare';
+import { shareFile, shareText } from '../platform/native';
+import { RacingLineView } from '../render/racingLine';
+import { TelemetryOverlay } from '../ui/telemetry';
+import { canRecordVideo, VideoRecorder } from './replayVideo';
 import type { Action } from '../input/input';
 import { CarView } from '../render/carView';
 import { nearestPoint, traceRoute, type Route } from '../track/route';
 import type { Track } from '../track/track';
-import { esc, showScreen } from '../ui/dom';
+import { showScreen, toast } from '../ui/dom';
 import type { App, Mode } from './app';
-import type { RaceEntry } from './raceMode';
+import { AUTOPLAY, lineKeyOf, type RaceEntry } from './raceMode';
+
+/** What the replay draws on the road: the line this run drove, the ideal racing line, or nothing. */
+type LineShown = 'driven' | 'ideal' | 'off';
+const LINE_LABEL: Record<LineShown, string> = { driven: 'Line: driven', ideal: 'Line: ideal', off: 'Line: off' };
+
+export interface ReplayOptions {
+  /** The banner's title ('Replay': the player's own run). */
+  title?: string;
+  /** Who drove it, for the banner and a shared link ('' : the player). */
+  driver?: string;
+  /** A line under the title (a shared run: verified or not). */
+  note?: string;
+  /** A "Race it" button: race the track against this lap. */
+  onRace?: () => void;
+}
 
 /** Heading on the ground plane (rad; grows turning left, the way the yaw rate is signed). */
 function headingOf(q: Quat): number {
@@ -43,14 +70,30 @@ export class ReplayMode implements Mode {
   /** Ghost tick shown last frame; -1 before the first frame. */
   private lastT = -1;
   private speed = 1;
+  private readonly overlay: TelemetryOverlay;
+  private lineShown: LineShown = 'driven';
+  private lineView: RacingLineView | null = null;
+  private lineCancel: (() => void) | null = null;
+  private recorder: VideoRecorder | null = null;
+  private screen: HTMLElement | null = null;
+  private readonly title: string;
+  private readonly driver: string;
+  private readonly note: string;
+  private alive = true;
+  private readonly onRace: (() => void) | null;
 
   constructor(
     private readonly app: App,
     private readonly track: Track,
     private readonly ghost: Ghost,
-    entry: RaceEntry,
+    private readonly entry: RaceEntry,
     private readonly onExit: () => void,
+    opts: ReplayOptions = {},
   ) {
+    this.title = opts.title ?? 'Replay';
+    this.driver = opts.driver ?? app.store.profile.name;
+    this.note = opts.note ?? '';
+    this.onRace = opts.onRace ?? null;
     // The ghost knows the class that drove it.
     this.car = new CarView(app.world.scene, app.playerCarOptions(ghost.vehicle));
     this.route = traceRoute(track);
@@ -58,12 +101,22 @@ export class ReplayMode implements Mode {
     app.showTouch(false);
     app.rig.vehicle = ghost.vehicle;
     app.rig.reset();
-    showScreen(
-      `<div class="row" style="position:absolute;top:calc(12px + var(--safe-t));left:calc(14px + var(--safe-l));right:calc(14px + var(--safe-r))">
-        <div class="panel" style="padding:8px 14px"><b>REPLAY</b> &nbsp; ${esc(entry.label)} &nbsp; <span class="muted">${formatTime(ghost.time)}</span></div>
+    this.overlay = new TelemetryOverlay(document.querySelector<HTMLElement>('#app')!);
+    this.showButtons();
+    this.syncLine();
+  }
+
+  private showButtons(): void {
+    const canLink = !!this.ghost.inputs?.length;
+    this.screen = showScreen(
+      `<div class="row replay-bar" style="position:absolute;top:calc(12px + var(--safe-t));left:calc(14px + var(--safe-l));right:calc(14px + var(--safe-r));flex-wrap:wrap;gap:6px">
         <div class="spacer"></div>
-        <button class="btn small" data-act="slow">Speed: 1x</button>
+        <button class="btn small" data-act="slow">Speed: ${this.speed}x</button>
         <button class="btn small" data-act="restart">From start</button>
+        <button class="btn small" data-act="line">${LINE_LABEL[this.lineShown]}</button>
+        <button class="btn small" data-act="video">Share video</button>
+        ${canLink ? '<button class="btn small" data-act="link">Share run</button>' : ''}
+        ${this.onRace ? '<button class="btn small" data-act="race">Race it</button>' : ''}
         <button class="btn small primary" data-act="exit">Exit replay</button>
       </div>`,
       'editor',
@@ -72,13 +125,114 @@ export class ReplayMode implements Mode {
         restart: () => {
           this.tick = 0;
           this.app.rig.reset();
+          this.lineView?.resetTracking();
         },
         slow: (el) => {
           this.speed = this.speed === 1 ? 0.5 : this.speed === 0.5 ? 0.25 : 1;
           el.textContent = `Speed: ${this.speed}x`;
         },
+        line: (el) => {
+          this.lineShown = this.lineShown === 'driven' ? 'ideal' : this.lineShown === 'ideal' ? 'off' : 'driven';
+          el.textContent = LINE_LABEL[this.lineShown];
+          this.syncLine();
+        },
+        video: () => this.recordVideo(),
+        link: () => void this.shareLink(),
+        race: () => this.onRace?.(),
       },
     );
+  }
+
+  /** Draw the chosen line: the run's own (from its poses and inputs) or the ideal racing line (worked out if need be). */
+  private syncLine(): void {
+    this.lineCancel?.();
+    this.lineCancel = null;
+    this.lineView?.dispose();
+    this.lineView = null;
+    if (this.lineShown === 'driven') {
+      const d = drivenLineData(this.ghost);
+      if (d) this.showLine(new RacingLineView(d));
+    } else if (this.lineShown === 'ideal') {
+      const key = lineKeyOf(this.entry);
+      const cached = lineJobs.peek(key);
+      const show = (d: Parameters<Parameters<typeof lineJobs.request>[2]>[0]) => {
+        this.lineCancel = null;
+        if (!this.alive || this.lineShown !== 'ideal') return;
+        if (d) this.showLine(new RacingLineView(d));
+        else toast('This track has no racing line', 1500);
+      };
+      if (cached !== undefined) show(cached);
+      else this.lineCancel = lineJobs.request(key, this.track, show);
+    }
+  }
+
+  private showLine(v: RacingLineView): void {
+    this.lineView = v;
+    v.attach(this.app.world.scene);
+  }
+
+  /** The replay from the start into a video, then the share sheet. */
+  private recordVideo(): void {
+    if (this.recorder) return;
+    if (!canRecordVideo()) {
+      toast('This device cannot record video', 2500);
+      return;
+    }
+    try {
+      this.recorder = new VideoRecorder(this.app.world.renderer.domElement, this.overlay.canvas);
+    } catch {
+      toast('Could not start the recording', 2500);
+      return;
+    }
+    this.tick = 0;
+    this.speed = 1;
+    this.app.rig.reset();
+    this.lineView?.resetTracking();
+    this.screen = showScreen(
+      `<div class="row" style="position:absolute;top:calc(12px + var(--safe-t));right:calc(14px + var(--safe-r))">
+        <div class="panel replay-rec" style="padding:8px 14px"><b style="color:#ff5040">&#9679; REC</b> <span class="rec-pct">0%</span></div>
+        <button class="btn small" data-act="cancel">Cancel</button>
+      </div>`,
+      'editor',
+      {
+        cancel: () => {
+          this.recorder?.cancel();
+          this.recorder = null;
+          this.showButtons();
+        },
+      },
+    );
+  }
+
+  /** The recording reached the end of the lap: share it. */
+  private async finishVideo(): Promise<void> {
+    const rec = this.recorder;
+    if (!rec) return;
+    this.recorder = null;
+    const blob = await rec.stop();
+    if (!this.alive) return;
+    this.showButtons();
+    const name = `VelocityBlocks-${this.entry.label.replace(/[^A-Za-z0-9]+/g, '-')}-${formatTime(this.ghost.time).replace(/[:.]/g, '-')}.${rec.ext}`;
+    const r = await shareFile(name, blob, `${this.entry.label} in ${formatTime(this.ghost.time)} - Velocity Blocks`);
+    if (r === 'downloaded') toast('Video saved', 2000);
+    else if (r === 'failed') toast('Could not share the video', 2500);
+  }
+
+  /** Share the run as a link that drives the same lap in the receiver's game. */
+  private async shareLink(): Promise<void> {
+    const run = runOf(this.entry, this.ghost, this.driver);
+    if (!run) return;
+    const link = await runLink(run);
+    // Autoplay test runs read the link back (DevTools) to open it as another phone would.
+    if (AUTOPLAY) (window as unknown as { vbLastRunLink: string }).vbLastRunLink = link;
+    const who = this.driver ? `${this.driver}'s` : 'My';
+    const r = await shareText(`${who} ${this.entry.label} run: ${formatTime(this.ghost.time)} in Velocity Blocks. Watch it or race it: ${link}`);
+    if (r === 'copied') toast('Link copied', 2000);
+    else if (r === 'failed') toast('Could not share the link', 2500);
+  }
+
+  afterRender(): void {
+    this.recorder?.frame();
   }
 
   onAction(a: Action): void {
@@ -86,11 +240,19 @@ export class ReplayMode implements Mode {
   }
 
   update(dt: number): void {
+    // The ideal line loads (or is worked out) in slices; only race mode pumps them otherwise.
+    if (this.lineCancel) lineJobs.pumpFrame(dt, false);
     const end = ghostEndTick(this.ghost);
     this.tick += (dt / DT) * this.speed;
-    if (this.tick > end + 150) {
+    if (this.recorder) {
+      const pct = this.screen?.querySelector('.rec-pct');
+      if (pct) pct.textContent = `${Math.min(100, Math.round((this.tick / (end + 60)) * 100))}%`;
+      // A moment on the finish, then the video is done.
+      if (this.tick > end + 60) void this.finishVideo();
+    } else if (this.tick > end + 150) {
       this.tick = 0;
       this.app.rig.reset();
+      this.lineView?.resetTracking();
     }
     const t = Math.min(this.tick, end);
     const p = ghostPose(this.ghost, t);
@@ -127,6 +289,8 @@ export class ReplayMode implements Mode {
     );
     this.app.rig.lean = this.car.lean;
     this.app.rig.boost = this.car.boost;
+    this.lineView?.update(p.pos);
+    this.drawTelemetry(t, sp * 3.6);
 
     // Shot selection.
     this.shotTime += dt;
@@ -147,6 +311,25 @@ export class ReplayMode implements Mode {
       this.app.rig.follow(p.pos, p.rot, sp > 1 ? vel : { x: 0, y: 0, z: 0 }, dt, this.track);
     }
     this.app.world.focusShadow(p.pos.x, p.pos.y, p.pos.z);
+  }
+
+  private drawTelemetry(t: number, kmh: number): void {
+    const g = this.ghost;
+    const k = Math.floor(t) * INPUT_STRIDE;
+    const u = g.inputs;
+    const input =
+      u && k + 3 < u.length ? { steer: u[k] / 127, gas: u[k + 1] / 255, brake: u[k + 2] / 255, nitro: u[k + 3] === 1 } : u?.length ? { steer: 0, gas: 0, brake: 1, nitro: false } : null;
+    const ms = Math.min(g.time, Math.round(t * DT * 1000));
+    const by = this.driver ? `${this.driver} \u00b7 ` : '';
+    this.overlay.draw({
+      title: `${this.title}: ${this.entry.label}`,
+      subtitle: `${by}${formatTime(g.time)}${this.note ? ` \u00b7 ${this.note}` : ''}`,
+      timeMs: ms,
+      speedKmh: kmh,
+      input,
+      nitroOn: ghostNitro(g, t) > 0,
+      splits: g.cpTimes.filter((c) => c <= ms).map((c, i) => `CP${i + 1} ${formatTime(c)}`),
+    });
   }
 
   /** True when a ghost sample step between ticks a and b is longer than any car can drive in it. */
@@ -197,6 +380,12 @@ export class ReplayMode implements Mode {
   }
 
   exit(): void {
+    this.alive = false;
+    this.recorder?.cancel();
+    this.recorder = null;
+    this.lineCancel?.();
+    this.lineView?.dispose();
+    this.overlay.dispose();
     this.car.dispose();
     this.app.rig.mode = this.app.store.settings.camera;
     this.app.rig.lean = 0;

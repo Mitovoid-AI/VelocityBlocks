@@ -187,6 +187,8 @@ function race(steerMode: SteerMode, tiltOk = true) {
     framesAtStart: 0,
     cancelsAtStart: 0,
     ghostLabel: () => 'Ghost: on',
+    medalGhostLabel: () => 'Target ghost: on',
+    chaseLabel: () => 'Chase: Auto (Gold)',
     lineLabel: () => 'Racing line: off',
     steerLabel: (RaceMode.prototype as unknown as { steerLabel(): string }).steerLabel,
     diagText: () => '',

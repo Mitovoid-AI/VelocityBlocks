@@ -24,6 +24,7 @@ import { qfromYawDir } from '../core/vec';
 import type { VehicleClass } from '../core/vehicles';
 import type { PlacedBlock, Track } from '../track/track';
 import { GhostRecorder, type Ghost } from './ghost';
+import { INPUT_STRIDE } from './inputLog';
 
 export const COUNTDOWN_TICKS = 150; // 1.5 s: "3", "2", "1" at 0.5 s steps
 /** Ticks (3 s) the car may stay flipped before it is respawned automatically. */
@@ -76,8 +77,7 @@ export type RaceEvent =
   /** The nitro has recharged and can fire again. */
   | { type: 'nitroReady' };
 
-/** Numbers per racing tick in RaceSession.inputs: steer (-127..127), gas (0..255), brake (0..255), nitro (0/1). */
-export const INPUT_STRIDE = 4;
+export { INPUT_STRIDE };
 
 /** The controls of racing tick `tick` in an input log (RaceSession.inputs), as the race applied them. */
 export function loggedControls(inputs: readonly number[], tick: number): Controls {
@@ -282,7 +282,7 @@ export class RaceSession {
         }
         this.phase = 'finished';
         this.finishTime = this.timeMs;
-        this.ghost = this.recorder.finish(this.finishTime, this.cpTimes, this.vehicle);
+        this.ghost = this.recorder.finish(this.finishTime, this.cpTimes, this.vehicle, this.inputs, this.assists);
         events.push({ type: 'finish', time: this.finishTime });
         return;
       }

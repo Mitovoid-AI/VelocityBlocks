@@ -23,6 +23,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Shared runs: a link to the browser game with a run in it opens here when the app is installed. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="velocityblocks.vercel.app" android:pathPrefix="/play" />
+            </intent-filter>
+
         </activity>
 
         <provider

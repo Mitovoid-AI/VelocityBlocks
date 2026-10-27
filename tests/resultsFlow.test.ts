@@ -292,6 +292,7 @@ describe('RaceMode PB ghost for Retry', () => {
       refreshHud: vi.fn(),
       smoke: { clear: vi.fn() },
       lineView: null,
+      progress: { reset: vi.fn() },
     };
   }
   const restart = (r: object) => (RaceMode.prototype as unknown as { restart(): void }).restart.call(r);

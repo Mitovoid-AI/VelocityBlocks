@@ -55,6 +55,8 @@ function race(over: Record<string, unknown> = {}) {
     framesAtStart: 2,
     cancelsAtStart: 1,
     ghostLabel: () => 'Ghost: on',
+    medalGhostLabel: () => 'Target ghost: on',
+    chaseLabel: () => 'Chase: Auto (Gold)',
     lineLabel: (RaceMode.prototype as unknown as { lineLabel(): string }).lineLabel,
     diagText: (RaceMode.prototype as unknown as { diagText(): string }).diagText,
     setPaused: vi.fn(),

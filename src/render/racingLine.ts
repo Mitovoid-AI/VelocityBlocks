@@ -114,11 +114,11 @@ export function drawWindow(
 }
 
 const VERTEX = `attribute vec3 aCol; attribute float aS; attribute float aEdge; attribute float aMark;
-  uniform float uCarS;
+  uniform float uCarS; uniform float uFar;
   varying vec3 vCol; varying float vA; varying float vE; varying float vM; varying float vC;
   void main(){
     float d = aS - uCarS;
-    vA = smoothstep(3.0, 12.0, d) * (1.0 - smoothstep(150.0, ${AHEAD.toFixed(1)}, d));
+    vA = smoothstep(3.0, 12.0, d) * (1.0 - smoothstep(uFar - 70.0, uFar, d));
     vCol = aCol; vE = aEdge; vM = aMark;
     // Chevron phase relative to the car keeps the fragment maths small (mediump) on long tracks.
     vC = d + mod(uCarS, ${CHEVRON.toFixed(1)});
@@ -152,7 +152,7 @@ function lineMaterial(): THREE.ShaderMaterial {
     // Both faces in one draw (and one program): three draws a transparent DoubleSide material twice,
     // back faces then front, and only one face of the flat ribbon is ever seen.
     forceSinglePass: true,
-    uniforms: { uCarS: { value: 0 }, uOpacity: { value: 0.85 } },
+    uniforms: { uCarS: { value: 0 }, uOpacity: { value: 0.85 }, uFar: { value: AHEAD } },
     vertexShader: VERTEX,
     fragmentShader: FRAGMENT,
   });
@@ -195,11 +195,15 @@ export class RacingLineView {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private readonly ribbon: Ribbon;
   private hint = -1;
+  /** How far ahead of the car it is drawn (m). */
+  private readonly reach: number;
 
+  /** `reach`: metres drawn ahead of the car (default AHEAD); Infinity draws the rest of the track (a ghost's line). */
   constructor(
     readonly data: RacingLineData,
-    opts: { liftAsThrottle?: boolean } = {},
+    opts: { liftAsThrottle?: boolean; reach?: number } = {},
   ) {
+    this.reach = opts.reach ?? AHEAD;
     this.ribbon = buildRibbon(data, lineColors(data, opts.liftAsThrottle));
     const r = this.ribbon;
     const geo = new THREE.BufferGeometry();
@@ -211,6 +215,8 @@ export class RacingLineView {
     geo.setIndex(new THREE.BufferAttribute(r.index, 1));
     geo.setDrawRange(0, 0);
     this.mesh = new THREE.Mesh(geo, lineMaterial());
+    // The far fade sits at the end of the reach (a whole-track line never fades out ahead).
+    this.mesh.material.uniforms.uFar.value = Number.isFinite(this.reach) ? this.reach : 1e7;
     this.mesh.renderOrder = RACING_LINE_RENDER_ORDER;
     // The ribbon spans the whole track; the draw range does the culling.
     this.mesh.frustumCulled = false;
@@ -247,7 +253,7 @@ export class RacingLineView {
     // Between samples, so the fade glides at low speed instead of stepping a metre at a time.
     const s = lineDistanceAt(d, this.hint, carPos.x, carPos.z);
     this.mesh.material.uniforms.uCarS.value = s;
-    const [start, count] = drawWindow(d.s, this.ribbon.firstIndex, s);
+    const [start, count] = drawWindow(d.s, this.ribbon.firstIndex, s, BEHIND, this.reach);
     this.mesh.geometry.setDrawRange(start, count);
   }
 

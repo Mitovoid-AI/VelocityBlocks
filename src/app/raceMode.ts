@@ -3,10 +3,16 @@
 import { DT } from '../core/constants';
 import { entryKey, VEHICLE_LABEL, type VehicleClass } from '../core/vehicles';
 import { ghostPose, newGhostPose, type Ghost } from '../game/ghost';
-import { medalFor, medalTimes, type MedalTimes } from '../game/medals';
-import { FLIP_RESPAWN_TICKS, FLIP_WARN_TICKS, RaceSession, type RaceEvent } from '../game/race';
+import { MEDAL_COLORS, MEDAL_NAMES, medalFor, medalTimes, type MedalTimes } from '../game/medals';
+import type { ProPilot } from '../game/proDriver';
+import { drivenLineData } from '../game/drivenLine';
+import { autoChase, GhostDelta, RouteProgress } from '../game/ghostDelta';
+import { proGhostJob, proLapFor, proPilot, stretchGhost } from '../game/proLaps';
+import { traceRoute } from '../track/route';
+import * as THREE from 'three';
+import { FLIP_RESPAWN_TICKS, FLIP_WARN_TICKS, quantise, RaceSession, type RaceEvent } from '../game/race';
 import { lineJobs, type RacingLineData } from '../game/racingLine';
-import type { Settings } from '../game/storage';
+import { CHASE_TARGETS, type ChaseTarget, type Settings } from '../game/storage';
 import { isTouchDevice, type Action, type ActionSource } from '../input/input';
 import { nextSteerMode, STEER_LABEL } from '../input/touchModel';
 import type { SysCancel } from '../input/touchWatch';
@@ -44,6 +50,8 @@ export interface RaceEntry {
   campaignIndex?: number;
   /** Return to the editor instead of the menu. */
   fromEditor?: boolean;
+  /** A shared run raced as a ghost (App.openSharedRun): chased unless another target is picked. */
+  rival?: { ghost: Ghost; name: string };
   /** Editor test drives: this run set or lowered the class's author time (walls-off runs only, see authorTimeAfter). */
   onAuthorTime?: (time: number) => void;
 }
@@ -73,6 +81,41 @@ export function analogSteerFor(s: Pick<Settings, 'analogSteer' | 'steerMode'>, t
 
 /** Pause > Recentre tilt takes the device's roll this long after the tap, once the tap's jolt has settled. */
 export const RECENTRE_SETTLE_MS = 350;
+
+/**
+ * `?autoplay` in the address: the pro driver (game/proDriver.ts) drives every race instead of the player,
+ * with its tuned settings on campaign tracks. For testing on devices and emulators (App exposes window.vbTest).
+ */
+export const AUTOPLAY = typeof location !== 'undefined' && /[?&]autoplay\b/.test(location.search);
+/** `?autoplay=base`: the untuned pro driver (slower than the author lap), to watch it chase the medal ghosts. */
+const AUTOPLAY_BASE = typeof location !== 'undefined' && /[?&]autoplay=base\b/.test(location.search);
+
+/** A shared run's ghost (App.openSharedRun). */
+const SHARED_TAG_COLOR = '#ff9d2e';
+/** The personal-best ghost's tag colour (its car is the ghost blue). */
+const PB_TAG_COLOR = '#7fd8ff';
+/** Ghost tags float this high (m) over the ghost car. */
+const TAG_LIFT = 2.2;
+/** Screen margin (CSS px) of tags pinned to the edge, and the spacing of stacked ones. */
+const TAG_EDGE = 28;
+const TAG_STACK = 24;
+/** Tags of ghosts behind the camera sit this far (CSS px) from the top, under the race pills and split. */
+const TAG_BEHIND_Y = 165;
+
+const clampNum = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** A ghost raced against: its tag, its car (none while the PB ghost's own car stands in), and its time gaps. */
+interface Rival {
+  key: Exclude<ChaseTarget, 'auto'> | 'pro' | 'shared';
+  name: string;
+  color: string;
+  ghost: Ghost;
+  delta: GhostDelta;
+}
+
+
+/** Milliseconds per frame the pro ghost lap may take while it is worked out (during the countdown, mostly). */
+const PRO_JOB_MS = 4;
 
 /** Walls on all roads: seconds on the grass (outside the walls) before the HUD says how to get back. */
 export const OUTSIDE_HINT_S = 1.5;
@@ -130,6 +173,24 @@ export class RaceMode implements Mode {
   /** The ghost's pose now and one tick back, reused every frame. */
   private readonly ghostAt = newGhostPose();
   private readonly ghostBack = newGhostPose();
+  /** Medal ghosts (settings.medalGhosts): the pro driver's lap, stretched to each medal time, one car each. */
+  private medalCars: { car: CarView; ghost: Ghost; label: string }[] = [];
+  /** The pro lap being driven for them, a slice per frame; null when done or not wanted. */
+  private proJob: Generator<void, Ghost | null> | null = null;
+  /** The pro lap, once driven (null: none for this track). */
+  private proGhost: Ghost | null | undefined = undefined;
+  /** AUTOPLAY's driver. */
+  private pilot: ProPilot | null = null;
+  /** The target ghost's line on the road, for the whole lap (makeMedalCars). */
+  private targetLine: RacingLineView | null = null;
+  /** Every ghost raced against (PB, medals, pro), for the tags and the live gap. */
+  private rivals: Rival[] = [];
+  /** The player's place along the centre line, for the gaps. */
+  private readonly progress: RouteProgress;
+  /** Gaps (ms) to the chased ghost at each checkpoint passed this run, the latest first. */
+  private deltaLog: number[] = [];
+  private cpSeen = 0;
+  private readonly tagVec = new THREE.Vector3();
 
   constructor(
     private readonly app: App,
@@ -149,7 +210,10 @@ export class RaceMode implements Mode {
     this.pbGhost = app.store.ghost(entry.key);
     this.pbSplits = app.store.record(entry.key)?.cpTimes ?? null;
     this.medals = entry.authorTime ? medalTimes(entry.authorTime) : null;
+    this.progress = new RouteProgress(traceRoute(this.track));
     this.makeGhostCar();
+    this.syncMedalGhosts();
+    if (AUTOPLAY) this.pilot = proPilot(this.track, entry.vehicle, AUTOPLAY_BASE ? null : (proLapFor(entry.base, entry.vehicle)?.params ?? null));
     app.rig.mode = app.store.settings.camera;
     app.rig.vehicle = entry.vehicle;
     app.rig.reset();
@@ -223,7 +287,8 @@ export class RaceMode implements Mode {
   private makeGhostCar(): void {
     this.ghostCar?.dispose();
     this.ghostCar = null;
-    if (this.pbGhost && this.app.store.settings.showGhost) {
+    this.buildRivals();
+    if (this.pbGhost && this.app.store.settings.showGhost && this.chaseKey() === 'pb' && !this.entry.rival) {
       // The ghost is "you": the player's body and photo, in ghost blue with a dimmed badge.
       // Records and ghosts are kept per class, so the ghost is the same vehicle.
       const p = this.app.playerCarOptions(this.entry.vehicle);
@@ -270,6 +335,11 @@ export class RaceMode implements Mode {
     // A settings change since the last run (traction control, auto-accelerate) applies from here.
     this.race.assists = this.assists();
     this.race.restart();
+    this.pilot?.reset();
+    this.progress.reset();
+    this.targetLine?.resetTracking();
+    this.deltaLog = [];
+    this.cpSeen = 0;
     this.app.input.clearNitroPress();
     this.nitroArmed = false;
     this.grassFor = 0;
@@ -349,6 +419,177 @@ export class RaceMode implements Mode {
 
   private ghostLabel(): string {
     return this.app.store.settings.showGhost ? 'Ghost: on' : 'Ghost: off';
+  }
+
+  /** Show or drop the medal ghosts to match settings.medalGhosts (tracks with an author time only). */
+  private syncMedalGhosts(): void {
+    if (!this.medals) return;
+    if (this.proGhost === undefined) {
+      // The pro lap is driven whatever the setting: it is the author lap (gaps, tags, its replay).
+      // Driven on the open-road track, as it was tuned: the same lap, tick for tick, as the stored one.
+      const { base, vehicle, data } = this.entry;
+      const lap = proLapFor(base, vehicle);
+      if (lap && !this.proJob) this.proJob = proGhostJob(new Track(data), vehicle, lap.params);
+      if (!lap) this.proGhost = null;
+      return;
+    }
+    this.makeMedalCars();
+  }
+
+  /** A slice of the pro lap per frame, PRO_JOB_MS at most; the medal cars appear when it is done. */
+  private pumpProJob(): void {
+    if (!this.proJob) return;
+    const t0 = performance.now();
+    while (performance.now() - t0 < PRO_JOB_MS) {
+      const r = this.proJob.next();
+      if (!r.done) continue;
+      this.proJob = null;
+      this.proGhost = r.value;
+      this.makeMedalCars();
+      return;
+    }
+  }
+
+  /**
+   * The target ghost (settings.medalGhosts): one car in its medal colour (the PB's is the player-look ghost car,
+   * makeGhostCar) and its line on the road for the whole lap, coloured by what it does there, to follow.
+   */
+  private makeMedalCars(): void {
+    this.disposeMedalCars();
+    this.buildRivals();
+    const t = this.rivals[0];
+    if (!t || !this.app.store.settings.medalGhosts) return;
+    if (t.key !== 'pb') {
+      const car = new CarView(this.app.world.scene, { color: t.color, ghost: true, vehicle: this.entry.vehicle, avatar: null });
+      this.medalCars.push({ car, ghost: t.ghost, label: t.name });
+    }
+    // A medal ghost is the pro lap slowed down: the same line, so it is drawn from the pro lap (its own inputs).
+    const src = t.key === 'gold' || t.key === 'author' || t.key === 'silver' || t.key === 'bronze' ? this.proGhost : t.ghost;
+    const d = src ? drivenLineData(src) : null;
+    if (d) {
+      this.targetLine = new RacingLineView(d, { reach: Infinity, liftAsThrottle: this.app.store.settings.autoAccelerate });
+      this.targetLine.attach(this.app.world.scene);
+    }
+  }
+
+  private disposeMedalCars(): void {
+    for (const m of this.medalCars) m.car.dispose();
+    this.medalCars = [];
+    this.targetLine?.dispose();
+    this.targetLine = null;
+  }
+
+  /**
+   * The ghost to race against, one at a time: a shared run when racing one, else the chase target (Gold until
+   * gold is won, then the Author, then the PB; or the pause menu's pick), else whichever of those exists.
+   */
+  private buildRivals(): void {
+    const route = this.progress.route;
+    const out: Rival[] = [];
+    const s = this.app.store.settings;
+    const sr = this.entry.rival;
+    if (sr) out.push({ key: 'shared', name: sr.name, color: SHARED_TAG_COLOR, ghost: sr.ghost, delta: new GhostDelta(route, sr.ghost) });
+    if (this.pbGhost && s.showGhost) out.push({ key: 'pb', name: 'PB', color: PB_TAG_COLOR, ghost: this.pbGhost, delta: new GhostDelta(route, this.pbGhost) });
+    const g = this.proGhost;
+    const m = this.medals;
+    if (g && m) {
+      const tiers: [Rival['key'], number, string, string][] = [
+        ['author', m.author, MEDAL_COLORS[4], MEDAL_NAMES[4]],
+        ['gold', m.gold, MEDAL_COLORS[3], MEDAL_NAMES[3]],
+        ['silver', m.silver, MEDAL_COLORS[2], MEDAL_NAMES[2]],
+        ['bronze', m.bronze, MEDAL_COLORS[1], MEDAL_NAMES[1]],
+      ];
+      for (const [key, time, color, name] of tiers) {
+        const sg = stretchGhost(g, time);
+        out.push({ key, name, color, ghost: sg, delta: new GhostDelta(route, sg) });
+      }
+    }
+    this.rivals = out;
+    const t = this.chased();
+    this.rivals = t ? [t] : [];
+  }
+
+  /** The chased ghost's key: the setting, or for 'auto' the next goal (autoChase). */
+  private chaseKey(): Exclude<ChaseTarget, 'auto'> {
+    const c = this.app.store.settings.chase;
+    if (c !== 'auto') return c;
+    return autoChase(this.app.store.record(this.entry.key)?.best ?? null, this.medals);
+  }
+
+  /** The chased rival: the chosen one, else Gold, the Author or the PB, whichever exists. */
+  private chased(): Rival | null {
+    const shared = this.rivals.find((x) => x.key === 'shared');
+    if (shared && this.app.store.settings.chase === 'auto') return shared;
+    const want = this.chaseKey();
+    for (const k of [want, 'gold', 'author', 'pb'] as const) {
+      const r = this.rivals.find((x) => x.key === k);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  /** Every frame: the live gap and checkpoint log against the chased ghost, and a tag on every ghost. */
+  private updateRivals(): void {
+    const hud = this.app.hud;
+    const target = this.chased();
+    const racing = this.race.phase !== 'countdown';
+    const now = this.race.phase === 'finished' ? this.race.finishTime! : this.race.timeMs;
+    const gap = (r: Rival) => (racing ? now - r.delta.timeAt(this.progress.s) : 0);
+    // A checkpoint passed since last frame: log the gap there (the ghost's own split, so it is exact).
+    while (target && this.cpSeen < this.race.cpTimes.length) {
+      const t = this.race.cpTimes[this.cpSeen];
+      const g = target.ghost.cpTimes[this.cpSeen];
+      this.deltaLog.unshift(g !== undefined ? t - g : gap(target));
+      this.cpSeen++;
+    }
+    hud.setDelta(target && !this.resultsShown ? { name: target.name, color: target.color } : null, target ? gap(target) : 0, this.deltaLog);
+    // Tags: projected over each ghost; off screen or behind the camera, pinned to the nearest edge (behind: the bottom).
+    const cam = this.app.world.camera;
+    const w = this.app.world.renderer.domElement.clientWidth;
+    const h = this.app.world.renderer.domElement.clientHeight;
+    const tick = racing ? this.race.ticks + (this.paused ? 1 : this.acc / DT) : 0;
+    let stacked = 0;
+    const tags = this.resultsShown
+      ? []
+      : this.rivals.map((r) => {
+          const p = ghostPose(r.ghost, tick, this.ghostAt);
+          const v = this.tagVec.set(p?.pos.x ?? 0, (p?.pos.y ?? 0) + TAG_LIFT, p?.pos.z ?? 0);
+          const behind = v.clone().applyMatrix4(cam.matrixWorldInverse).z > 0;
+          v.project(cam);
+          let x = ((v.x + 1) / 2) * w;
+          let y = ((1 - v.y) / 2) * h;
+          let edge = behind || x < TAG_EDGE || x > w - TAG_EDGE || y < TAG_EDGE || y > h - TAG_EDGE;
+          if (behind) {
+            // Top centre, clear of the touch controls (steering bottom left, pedals bottom right).
+            x = clampNum(w - x, w * 0.35, w * 0.65);
+            y = TAG_BEHIND_Y + stacked++ * TAG_STACK;
+          } else if (edge) {
+            x = clampNum(x, TAG_EDGE * 3, w - TAG_EDGE * 3);
+            y = clampNum(y, TAG_EDGE + 40, h - TAG_EDGE);
+          }
+          const d = gap(r);
+          // Where the ghost is from the player: ahead (up arrow) or behind (down arrow), and by how long.
+          const text = racing ? `${r.name} ${d > 0 ? '\u25B2' : '\u25BC'} ${(Math.abs(d) / 1000).toFixed(2)}` : r.name;
+          return { x, y, text, color: r.color, edge, target: r === target };
+        });
+    hud.setGhostTags(tags);
+  }
+
+  private toggleMedalGhosts(): void {
+    this.app.store.settings.medalGhosts = !this.app.store.settings.medalGhosts;
+    this.app.store.saveSettings();
+    this.syncMedalGhosts();
+  }
+
+  private chaseLabel(): string {
+    const c = this.app.store.settings.chase;
+    const name = (k: string) => (k === 'pb' ? 'PB' : k[0].toUpperCase() + k.slice(1));
+    return c === 'auto' ? `Chase: Auto (${name(this.chaseKey())})` : `Chase: ${name(c)}`;
+  }
+
+  private medalGhostLabel(): string {
+    if (!this.medals) return 'Target ghost: n/a';
+    return this.app.store.settings.medalGhosts ? 'Target ghost: on' : 'Target ghost: off';
   }
 
   private steerLabel(): string {
@@ -450,6 +691,8 @@ export class RaceMode implements Mode {
             <button class="btn primary center" data-act="resume">Resume</button>
             <button class="btn center" data-act="restart">Restart</button>
             <button class="btn center" data-act="ghost">${this.ghostLabel()}</button>
+            <button class="btn center" data-act="medalGhosts">${esc(this.medalGhostLabel())}</button>
+            <button class="btn center" data-act="chase">${esc(this.chaseLabel())}</button>
             <button class="btn center" data-act="line">${esc(this.lineLabel())}</button>
             ${steer}
             ${recentre}
@@ -465,6 +708,20 @@ export class RaceMode implements Mode {
           ghost: (el) => {
             this.toggleGhost();
             el.textContent = this.ghostLabel();
+          },
+          medalGhosts: (el) => {
+            this.toggleMedalGhosts();
+            el.textContent = this.medalGhostLabel();
+          },
+          chase: (el) => {
+            const s = this.app.store.settings;
+            s.chase = CHASE_TARGETS[(CHASE_TARGETS.indexOf(s.chase) + 1) % CHASE_TARGETS.length];
+            this.app.store.saveSettings();
+            this.makeGhostCar();
+            this.makeMedalCars();
+            this.deltaLog = [];
+            this.cpSeen = this.race.cpTimes.length;
+            el.textContent = this.chaseLabel();
           },
           line: (el) => {
             this.toggleLine();
@@ -542,10 +799,11 @@ export class RaceMode implements Mode {
       while (this.acc >= DT && steps < 12) {
         this.snapPrev();
         // Once per step: a nitro press is taken by the first read after it (Input.read).
-        const ctl = app.input.read();
+        const ctl = this.pilot && this.race.phase === 'racing' ? quantise(this.pilot.controls(this.race)) : app.input.read();
         if (ctl.nitro && this.race.phase === 'countdown') this.nitroArmed = true;
         this.lastCtl = ctl;
         this.handle(this.race.step(ctl));
+        if (this.race.phase === 'racing') this.progress.update(this.race.car.pos.x, this.race.car.pos.y, this.race.car.pos.z);
         this.acc -= DT;
         steps++;
       }
@@ -578,6 +836,22 @@ export class RaceMode implements Mode {
         this.ghostCar.setAvatarFade((d - GHOST_FADE_NEAR) / (GHOST_FADE_FAR - GHOST_FADE_NEAR));
       }
     }
+
+    this.pumpProJob();
+    if (this.medalCars.length) {
+      const tick = this.race.phase === 'countdown' ? 0 : this.race.ticks + alpha;
+      for (const m of this.medalCars) {
+        const g = ghostPose(m.ghost, tick, this.ghostAt);
+        if (!g) continue;
+        const g0 = ghostPose(m.ghost, Math.max(0, tick - 1), this.ghostBack);
+        const gsp = g0 ? Math.hypot(g.pos.x - g0.pos.x, g.pos.z - g0.pos.z) / DT : 0;
+        m.car.applyPose(g.pos, g.rot, g.steer, this.paused ? 0 : 0.3, gsp, ghostYawRate(m.ghost, tick));
+        m.car.setVisible(Math.hypot(g.pos.x - c.pos.x, g.pos.y - c.pos.y, g.pos.z - c.pos.z) > this.fx.ghostHide);
+      }
+    }
+
+    this.targetLine?.update(this.car.visual.root.position);
+    this.updateRivals();
 
     // Smoke from the rear wheels when sliding; on grass the low grip makes every corner a slide.
     // The emitters sit behind this class's rear tyres (vehicleFx; the car's at z -1.4, x +-0.9).
@@ -802,6 +1076,8 @@ export class RaceMode implements Mode {
       hasNext: !!next,
       nextLocked: !!next && !!app.entryLock(next),
       fromEditor: !!entry.fromEditor,
+      authorReplay: !!this.proGhost,
+      bestReplay: !f.improved && !!app.store.ghost(entry.key),
     });
     const animate = !prefersReducedMotion();
     const el = showScreen(scoreCardHtml(model, animate), 'dim score-screen', {
@@ -814,6 +1090,14 @@ export class RaceMode implements Mode {
         if (!ghost) return;
         // exit() leaves the world on this track, so the replay drives it.
         app.setMode(() => new ReplayMode(app, this.track, ghost, entry, () => app.startRace(entry)));
+      },
+      replayBest: () => {
+        const ghost = app.store.ghost(entry.key);
+        if (ghost) app.setMode(() => new ReplayMode(app, this.track, ghost, entry, () => app.startRace(entry)));
+      },
+      replayAuthor: () => {
+        const ghost = this.proGhost;
+        if (ghost) app.setMode(() => new ReplayMode(app, this.track, ghost, entry, () => app.startRace(entry), { title: 'Author lap', driver: 'Velocity Blocks AI' }));
       },
       // A natural break: browser builds may play an interstitial before the next track.
       next: () => next && void app.playRace(next),
@@ -841,6 +1125,10 @@ export class RaceMode implements Mode {
     this.lineView = null;
     this.car.dispose();
     this.ghostCar?.dispose();
+    this.proJob = null;
+    this.disposeMedalCars();
+    this.app.hud.setDelta(null, 0, []);
+    this.app.hud.setGhostTags([]);
     this.smoke.dispose();
     // Hide it here rather than relying on the next race's setTrack().
     this.app.hud.flipWarning(null);

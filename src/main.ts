@@ -1,6 +1,9 @@
 import './ui/styles.css';
 import { createAds } from './ads/adsUi';
 import { App } from './app/app';
+import { AUTOPLAY } from './app/raceMode';
+import { loadProLaps, proLapFor } from './game/proLaps';
+import { campaign } from './track/campaign';
 
 // The web manifest's icons make the browser game installable, and Chrome on Android would then pop up its
 // own "Install app" banner on every visit. Suppress it: players add the game to the Home Screen from the
@@ -25,6 +28,11 @@ async function boot(): Promise<App | null> {
   try {
     const app = new App(ads);
     app.start();
+    // Autoplay test runs drive the app from outside (DevTools on a device or emulator): see raceMode.ts AUTOPLAY.
+    if (AUTOPLAY) {
+      void loadProLaps();
+      (window as unknown as { vbTest: unknown }).vbTest = { app, campaign, proLapFor };
+    }
     // The first frames compile every shader and bake the lighting, a second or two on a phone. The
     // boot screen stays over them (at most 8 s), so the menu never appears and then freezes.
     await Promise.race([app.world.ready, new Promise((r) => setTimeout(r, 8000))]);

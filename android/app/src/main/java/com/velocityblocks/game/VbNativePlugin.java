@@ -139,6 +139,116 @@ public class VbNativePlugin extends Plugin {
         return new File(getContext().getCacheDir(), "pending-export");
     }
 
+    // ------------------------------------------------------------------ Sharing (replays, videos)
+
+    /** Files to share are written here (FileProvider's cache-path), one at a time. */
+    private File shareFile(String name) {
+        File dir = new File(getContext().getCacheDir(), "shared");
+        if (!dir.isDirectory()) dir.mkdirs();
+        // Only the last path segment, with nothing but safe characters: the name comes from the page.
+        return new File(dir, name.replaceAll("[^A-Za-z0-9._-]", "_"));
+    }
+
+    /**
+     * Append a base64 chunk to a file to share (`reset` starts it over). A video is megabytes; the bridge
+     * takes it in chunks rather than one huge string.
+     */
+    @PluginMethod
+    public void writeShareChunk(PluginCall call) {
+        String name = call.getString("name");
+        String data = call.getString("base64");
+        if (name == null || data == null) {
+            call.reject("Missing name or data");
+            return;
+        }
+        boolean reset = Boolean.TRUE.equals(call.getBoolean("reset", false));
+        try (OutputStream out = new FileOutputStream(shareFile(name), !reset)) {
+            out.write(android.util.Base64.decode(data, android.util.Base64.DEFAULT));
+        } catch (IOException | IllegalArgumentException e) {
+            call.reject("Could not write the file: " + e.getMessage(), e);
+            return;
+        }
+        call.resolve(new JSObject());
+    }
+
+    /** Open Android's share sheet (WhatsApp, Drive, ...) on a file written with writeShareChunk, with an optional message. */
+    @PluginMethod
+    public void shareFile(PluginCall call) {
+        String name = call.getString("name");
+        File f = name != null ? shareFile(name) : null;
+        if (f == null || !f.isFile()) {
+            call.reject("Nothing to share");
+            return;
+        }
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType(call.getString("mime", "application/octet-stream"));
+        send.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", f));
+        String text = call.getString("text");
+        if (text != null) send.putExtra(Intent.EXTRA_TEXT, text);
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startChooser(call, send);
+    }
+
+    /** Open Android's share sheet on a message (a link to a shared run). */
+    @PluginMethod
+    public void shareText(PluginCall call) {
+        String text = call.getString("text");
+        if (text == null) {
+            call.reject("Nothing to share");
+            return;
+        }
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, text);
+        startChooser(call, send);
+    }
+
+    private void startChooser(PluginCall call, Intent send) {
+        try {
+            Intent chooser = Intent.createChooser(send, call.getString("title", "Share"));
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(chooser);
+            JSObject ret = new JSObject();
+            ret.put("shared", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Could not open the share sheet: " + e.getMessage(), e);
+        }
+    }
+
+    // ------------------------------------------------------------------ Shared-run links
+
+    /** A shared-run link (https://velocityblocks.vercel.app/play/#run=...) the app was opened with, not yet taken. */
+    private String pendingLink;
+
+    private static String runLink(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) return null;
+        String url = intent.getData().toString();
+        return url.contains("run=") ? url : null;
+    }
+
+    /** The link the app was started from (once), so the game can open the run when it is ready. */
+    @PluginMethod
+    public void takeLink(PluginCall call) {
+        String link = pendingLink != null ? pendingLink : runLink(getActivity().getIntent());
+        pendingLink = null;
+        // Taken: a later resume must not open it again.
+        if (getActivity().getIntent() != null) getActivity().getIntent().setData(null);
+        JSObject ret = new JSObject();
+        if (link != null) ret.put("url", link);
+        call.resolve(ret);
+    }
+
+    /** A link opened while the app runs (singleTask: it arrives here): tell the game at once. */
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        String link = runLink(intent);
+        if (link == null) return;
+        JSObject data = new JSObject();
+        data.put("url", link);
+        notifyListeners("link", data, true);
+    }
+
     /** "wt" so overwriting a longer file leaves no stale tail; some providers only take "w". */
     private OutputStream openTruncated(Uri uri) throws IOException {
         OutputStream out;

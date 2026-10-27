@@ -35,6 +35,10 @@ export interface ScoreInput {
   /** The next track needs the Full Game: the button says so and opens the Full Game screen. */
   nextLocked?: boolean;
   fromEditor: boolean;
+  /** A replay of the author lap (the pro driver's) can be watched. */
+  authorReplay?: boolean;
+  /** A replay of the personal best (from an earlier run) can be watched. */
+  bestReplay?: boolean;
 }
 
 export type CueKind = 'delta' | 'medal' | 'charge' | 'author' | 'confetti' | 'headline' | 'banner';
@@ -257,6 +261,8 @@ export function scoreCardHtml(sm: ScoreModel, animate: boolean): string {
       <div class="row sc-actions">
         <button class="btn primary center" data-act="retry">Retry</button>
         <button class="btn center" data-act="replay">Watch replay</button>
+        ${i.bestReplay ? '<button class="btn center" data-act="replayBest">Your best lap</button>' : ''}
+        ${i.authorReplay ? '<button class="btn center" data-act="replayAuthor">Author lap</button>' : ''}
         ${i.hasNext ? `<button class="btn center" data-act="next">${i.nextLocked ? '&#128274; Next track' : 'Next track'}</button>` : ''}
         <button class="btn center" data-act="menu">${i.fromEditor ? 'Editor' : 'Menu'}</button>
       </div>
