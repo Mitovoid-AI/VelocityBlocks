@@ -58,7 +58,7 @@ if (cmd === 'import') {
   check(store);
   const b64 = readFileSync(store).toString('base64');
   // The value goes in on stdin, never on the command line.
-  const r = spawnSync('gh', ['secret', 'set', SECRET, '--repo', REPO], { input: b64, encoding: 'utf8', shell: process.platform === 'win32' });
+  const r = spawnSync('gh', ['secret', 'set', SECRET, '--repo', REPO], { input: b64, encoding: 'utf8' });
   if (r.status !== 0) fail(`gh secret set failed: ${r.stderr || r.error?.message}`);
   console.log(`secret ${SECRET} set on ${REPO}`);
 } else {
