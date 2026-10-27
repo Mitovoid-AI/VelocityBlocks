@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.velocityblocks.game",
+      "sha256_cert_fingerprints": ["8A:B1:92:36:30:87:8E:38:B5:ED:B8:5A:F5:5C:5A:17:3F:DE:86:75:67:0E:AD:9E:43:F3:A6:16:CE:98:77:D3"]
+    }
+  }
+]
